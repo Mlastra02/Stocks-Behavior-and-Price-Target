@@ -39,13 +39,29 @@ ANNUALIZATION_FACTOR = 252 / MOMENTUM_WINDOW_DAYS
 # A plain linear regression can still extrapolate to unrealistic drift values
 # during extreme momentum stretches; cap the annualized adjustment.
 MAX_ANNUALIZED_ADJUSTMENT = 0.20
-# ~2 years of history gives only a handful of independent MOMENTUM_WINDOW_DAYS
-# episodes to learn from (~6), so the fitted coefficients are estimated with a
-# lot of uncertainty. Shrink toward zero so a noisy/overconfident fit doesn't
-# dominate the drift; calibrated so MAX_ANNUALIZED_ADJUSTMENT is a rare
-# safety net rather than the typical outcome (see raw magnitudes measured
-# across the tracked universe: roughly -0.68 to +0.37 pre-shrinkage).
-SHRINKAGE_FACTOR = 0.3
+
+# Shrinkage toward zero, so a noisy/overconfident fit doesn't dominate the
+# drift. How much to shrink depends on how much independent information the
+# training set actually has: with TRACKED_STOCKS now fetching per-symbol
+# history back to a fixed start date (see market_data_client.py), sample size
+# varies a lot across the universe — LOAR has ~450 rows (~7 independent
+# MOMENTUM_WINDOW_DAYS episodes), MSFT has ~2500 (~40). A single flat
+# shrinkage constant calibrated for the smallest sample was overly
+# conservative for the better-sampled stocks, so shrinkage now scales with
+# the number of independent episodes actually behind the fit, between a
+# floor (never fully trust a 2-feature linear fit, no matter the sample) and
+# a ceiling (never let a thin sample swing the drift almost undamped).
+MIN_SHRINKAGE = 0.15
+MAX_SHRINKAGE = 0.70
+# Independent-episode count at which shrinkage reaches MAX_SHRINKAGE. ~40 is
+# roughly MSFT/NOW/MELI's level on the current fixed-start-date windows.
+FULL_CONFIDENCE_INDEPENDENT_EPISODES = 40
+
+
+def _shrinkage_for(n_observations: int) -> float:
+    independent_episodes = n_observations / MOMENTUM_WINDOW_DAYS
+    confidence = min(1.0, independent_episodes / FULL_CONFIDENCE_INDEPENDENT_EPISODES)
+    return MIN_SHRINKAGE + (MAX_SHRINKAGE - MIN_SHRINKAGE) * confidence
 
 
 @dataclass
@@ -112,7 +128,7 @@ def train_symbol(symbol: str) -> SectorModelBundle:
 
     bundle = SectorModelBundle(
         model=model,
-        trained_at=pd.Timestamp.utcnow().isoformat(),
+        trained_at=pd.Timestamp.now("UTC").isoformat(),
         n_observations=len(df),
     )
 
@@ -145,7 +161,8 @@ def predict_drift_adjustment(symbol: str) -> float:
     predicted_forward_excess_return = float(
         bundle.model.predict([[current_stock_momentum, current_sector_momentum]])[0]
     )
-    annualized = predicted_forward_excess_return * ANNUALIZATION_FACTOR * SHRINKAGE_FACTOR
+    shrinkage = _shrinkage_for(bundle.n_observations)
+    annualized = predicted_forward_excess_return * ANNUALIZATION_FACTOR * shrinkage
     return max(-MAX_ANNUALIZED_ADJUSTMENT, min(MAX_ANNUALIZED_ADJUSTMENT, annualized))
 
 

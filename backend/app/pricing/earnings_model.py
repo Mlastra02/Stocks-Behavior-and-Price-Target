@@ -37,7 +37,8 @@ MAX_REACTION_SEARCH_GAP_DAYS = 7
 FORWARD_HORIZONS_DAYS = {"1d": 1, "1w": 5, "1m": 20}
 CHART_WINDOW_MONTHS_BEFORE = 3
 CHART_WINDOW_MONTHS_AFTER = 3
-TREND_WINDOW_DAYS = 20  # ~1 trading month, trailing return right before the reaction
+DEFAULT_TREND_WINDOW_DAYS = 20  # ~1 trading month, trailing return right before the reaction
+VALID_TREND_WINDOW_DAYS = {5, 10, 20, 60}  # ~1 week, ~2 weeks, ~1 month, ~3 months
 VOLUME_BASELINE_DAYS = 60
 MIN_PAIRS_FOR_CORRELATION = 5
 
@@ -100,10 +101,10 @@ def _price_window(prices, center_date):
     return [{"date": ts.strftime("%Y-%m-%d"), "price": float(p)} for ts, p in window.items()]
 
 
-def _trend_before(prices, pos: int) -> Optional[float]:
-    """Trailing ~1-month return ending the trading day before the reaction."""
+def _trend_before(prices, pos: int, trend_window_days: int) -> Optional[float]:
+    """Trailing return ending the trading day before the reaction, over trend_window_days."""
     ref_pos = pos - 1  # the close right before the reaction, same anchor as reaction_day_return
-    start_pos = ref_pos - TREND_WINDOW_DAYS
+    start_pos = ref_pos - trend_window_days
     if ref_pos <= 0 or start_pos < 0:
         return None
     return float(prices.iloc[ref_pos] / prices.iloc[start_pos] - 1)
@@ -147,7 +148,11 @@ def analyze(
     require_uptrend_before: Optional[bool] = None,
     require_beat: Optional[bool] = None,
     since_year: Optional[int] = None,
+    trend_window_days: int = DEFAULT_TREND_WINDOW_DAYS,
 ) -> EarningsAnalysisResult:
+    if trend_window_days not in VALID_TREND_WINDOW_DAYS:
+        raise ValueError(f"trend_window_days debe ser uno de: {sorted(VALID_TREND_WINDOW_DAYS)}")
+
     records = market_data.earnings_history(symbol)
 
     if since_year is not None:
@@ -216,7 +221,7 @@ def analyze(
                 reaction_day_return=reaction_day_return,
                 forward_returns=forward_returns,
                 price_window=_price_window(prices, reaction_date),
-                trend_before_pct=_trend_before(prices, pos),
+                trend_before_pct=_trend_before(prices, pos, trend_window_days),
                 volume_ratio=_volume_ratio(volume, pos),
                 sector_reaction_day_return=sector_reaction,
                 excess_reaction_day_return=excess_reaction,

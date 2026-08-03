@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { API_BASE, pct, TRI_STATE_OPTIONS } from "./api";
 import PriceWindowChart from "./PriceWindowChart";
 
+const TREND_WINDOW_LABELS = { 5: "1 sem", 10: "2 sem", 20: "1 mes", 60: "3 meses" };
+
 function SignedPct({ value }) {
   if (value == null) return <span className="field-hint">—</span>;
   const positive = value >= 0;
@@ -40,6 +42,7 @@ export default function EarningsPage() {
   const [stocks, setStocks] = useState([]);
   const [symbol, setSymbol] = useState("");
   const [requireUptrend, setRequireUptrend] = useState("");
+  const [trendWindowDays, setTrendWindowDays] = useState("20");
   const [requireBeat, setRequireBeat] = useState("");
   const [sinceYear, setSinceYear] = useState("");
   const [result, setResult] = useState(null);
@@ -63,7 +66,7 @@ export default function EarningsPage() {
     setResult(null);
     setLoading(true);
     try {
-      const params = new URLSearchParams({ symbol });
+      const params = new URLSearchParams({ symbol, trend_window_days: trendWindowDays });
       if (requireUptrend !== "") params.set("require_uptrend_before", requireUptrend);
       if (requireBeat !== "") params.set("require_beat", requireBeat);
       if (sinceYear !== "") params.set("since_year", sinceYear);
@@ -114,6 +117,16 @@ export default function EarningsPage() {
                   {o.label}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label htmlFor="trend_window">Ventana para medir "venía subiendo/bajando"</label>
+            <select id="trend_window" value={trendWindowDays} onChange={(e) => setTrendWindowDays(e.target.value)}>
+              <option value="5">1 semana antes</option>
+              <option value="10">2 semanas antes</option>
+              <option value="20">1 mes antes</option>
+              <option value="60">3 meses antes</option>
             </select>
           </div>
 
@@ -183,7 +196,7 @@ export default function EarningsPage() {
                         <th>EPS real</th>
                         <th>EPS estimado</th>
                         <th>Sorpresa</th>
-                        <th>Tendencia previa</th>
+                        <th>Tendencia previa ({TREND_WINDOW_LABELS[result.trend_window_days]})</th>
                         <th>Fecha reacción</th>
                         <th>Día</th>
                         <th>Volumen</th>

@@ -156,17 +156,27 @@ def earnings_analysis():
         return jsonify({"error": str(exc)}), 400
 
     since_year = request.args.get("since_year", type=int)
+    trend_window_days = request.args.get(
+        "trend_window_days", earnings_model.DEFAULT_TREND_WINDOW_DAYS, type=int
+    )
 
     try:
         result = earnings_model.analyze(
-            symbol, require_uptrend_before=require_uptrend_before, require_beat=require_beat, since_year=since_year
+            symbol,
+            require_uptrend_before=require_uptrend_before,
+            require_beat=require_beat,
+            since_year=since_year,
+            trend_window_days=trend_window_days,
         )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except market_data.MarketDataError as exc:
         return jsonify({"error": str(exc)}), 502
 
     return jsonify(
         {
             "symbol": result.symbol,
+            "trend_window_days": trend_window_days,
             "n_beats": result.n_beats,
             "n_misses": result.n_misses,
             "pct_positive_reaction_day": result.pct_positive_reaction_day,

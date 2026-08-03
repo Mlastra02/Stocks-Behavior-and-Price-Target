@@ -78,6 +78,24 @@ class AnalyzeEventMatchingTest(unittest.TestCase):
         max_allowed_window = 3 * momentum_model.WINDOW_PROXIMITY_RATIO
         self.assertTrue(all(e["window_days"] <= max_allowed_window for e in result.episode_details))
 
+    def test_much_larger_historical_move_is_not_a_match(self):
+        # Regression test: the threshold used to only set a floor (>= 70% of
+        # current), so a small current move could "match" historical moves
+        # several times its size. A 30% historical move must not count as
+        # comparable to a 5% current one.
+        rng = np.random.default_rng(5)
+        n = 500
+        returns = list(rng.normal(0, 0.0015, n))
+
+        _set_window_move(returns, 200, 3, math.log(1.30))  # far larger than the current move
+        _set_window_move(returns, n - 3, 3, math.log(1.05))  # current move: only +5%
+
+        prices = build_price_series(returns)
+        result = self._analyze_with(prices)
+
+        for ep in result.episode_details:
+            self.assertLessEqual(ep["move_pct"], abs(result.current_move_pct) / momentum_model.MATCH_THRESHOLD_FRACTION)
+
     def test_opposite_direction_move_is_never_matched(self):
         rng = np.random.default_rng(4)
         n = 500

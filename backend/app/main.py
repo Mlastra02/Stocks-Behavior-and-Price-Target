@@ -134,7 +134,7 @@ def earnings_analysis():
             "pct_positive_reaction_day": result.pct_positive_reaction_day,
             "reactions": [
                 {
-                    "quarter_end": r.quarter_end,
+                    "report_date": r.report_date,
                     "eps_actual": r.eps_actual,
                     "eps_estimate": r.eps_estimate,
                     "surprise_pct": r.surprise_pct,

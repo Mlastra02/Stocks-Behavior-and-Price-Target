@@ -196,23 +196,35 @@ def analyst_expected_drift(symbol: str) -> Optional[float]:
 EARNINGS_HISTORY_TTL_SECONDS = 24 * 60 * 60  # changes only once a quarter
 EARNINGS_HISTORY_RETRIES = 3
 EARNINGS_HISTORY_RETRY_DELAY_SECONDS = 5
+# How many rows to ask Yahoo for. This scraped table returns fewer than
+# requested once a symbol runs out of history (e.g. a recent IPO), so asking
+# for more than any tracked stock actually has is harmless — it just gets
+# capped naturally per symbol.
+EARNINGS_HISTORY_ROW_LIMIT = 40
 
 
 def earnings_history(symbol: str) -> List[dict]:
-    """Last few quarters' EPS actual/estimate/surprise, most recent last. Cached 24h.
+    """Real earnings report dates with EPS actual/estimate/surprise, oldest
+    first, going back as far as Yahoo has (~12 years for well-covered large
+    caps; naturally shorter for recent IPOs). Cached 24h.
 
-    This specific Yahoo endpoint (scraped by yfinance) is noticeably flakier
-    than the others this client uses — it times out under light concurrent
-    load — so this retries a few times before giving up.
+    Uses get_earnings_dates() rather than the older `.earnings_history`
+    property this used to call: that one only ever returns the last 4
+    quarters, while this one takes a `limit` and gives the actual report
+    timestamp instead of just the fiscal quarter-end (no more need to infer
+    the reaction date by scanning for the biggest move afterward). This
+    specific Yahoo endpoint is noticeably flakier than the others this
+    client uses — it can time out under light load — so this retries a few
+    times before giving up.
     """
 
     def _fetch():
         last_error = None
         for attempt in range(EARNINGS_HISTORY_RETRIES):
             try:
-                df = yf.Ticker(symbol).earnings_history
+                df = yf.Ticker(symbol).get_earnings_dates(limit=EARNINGS_HISTORY_ROW_LIMIT)
                 break
-            except Exception as exc:  # yfinance/curl_cffi raise assorted network errors here
+            except Exception as exc:  # yfinance/curl_cffi raise assorted network/parsing errors here
                 last_error = exc
                 if attempt < EARNINGS_HISTORY_RETRIES - 1:
                     time.sleep(EARNINGS_HISTORY_RETRY_DELAY_SECONDS)
@@ -222,17 +234,21 @@ def earnings_history(symbol: str) -> List[dict]:
         if df is None or df.empty:
             return []
 
+        df = df.dropna(subset=["Reported EPS"])  # drop future/not-yet-reported rows
+
         records = []
-        for quarter_end, row in df.iterrows():
+        for report_date, row in df.iterrows():
+            report_date = pd.Timestamp(report_date)
             records.append(
                 {
-                    "quarter_end": pd.Timestamp(quarter_end).strftime("%Y-%m-%d"),
-                    "eps_actual": float(row["epsActual"]) if pd.notna(row.get("epsActual")) else None,
-                    "eps_estimate": float(row["epsEstimate"]) if pd.notna(row.get("epsEstimate")) else None,
-                    "surprise_pct": float(row["surprisePercent"]) if pd.notna(row.get("surprisePercent")) else None,
+                    "report_date": report_date.strftime("%Y-%m-%d"),
+                    "report_hour": report_date.hour,
+                    "eps_actual": float(row["Reported EPS"]) if pd.notna(row.get("Reported EPS")) else None,
+                    "eps_estimate": float(row["EPS Estimate"]) if pd.notna(row.get("EPS Estimate")) else None,
+                    "surprise_pct": float(row["Surprise(%)"]) / 100.0 if pd.notna(row.get("Surprise(%)")) else None,
                 }
             )
-        records.sort(key=lambda r: r["quarter_end"])
+        records.sort(key=lambda r: r["report_date"])
         return records
 
     return _cached(f"earnings_history:{symbol}", EARNINGS_HISTORY_TTL_SECONDS, _fetch)

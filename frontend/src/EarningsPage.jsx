@@ -17,7 +17,7 @@ export default function EarningsPage() {
   const [stocks, setStocks] = useState([]);
   const [symbol, setSymbol] = useState("");
   const [result, setResult] = useState(null);
-  const [selectedQuarter, setSelectedQuarter] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -42,7 +42,7 @@ export default function EarningsPage() {
       if (!res.ok) throw new Error(data.error || "Error desconocido");
       setResult(data);
       const withChart = [...data.reactions].reverse().find((r) => r.price_window.length > 0);
-      setSelectedQuarter(withChart ? withChart.quarter_end : null);
+      setSelectedReport(withChart ? withChart.report_date : null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -57,9 +57,9 @@ export default function EarningsPage() {
           <p className="eyebrow">Reacción a Earnings</p>
           <h1>¿Cómo reaccionó el precio a earnings pasados?</h1>
           <p className="subtitle">
-            Últimos ~4 trimestres: sorpresa de EPS (superó o no las estimaciones) y cómo se movió el precio después.
-            La fecha de reacción se infiere buscando el mayor movimiento diario en las semanas después del cierre
-            de cada trimestre — Yahoo no nos deja consultar la fecha exacta de forma confiable.
+            Todos los reportes de earnings disponibles (fechas reales de Yahoo, hasta ~12 años para las acciones
+            más establecidas): sorpresa de EPS y cómo se movió el precio después. La reacción se mide el mismo día
+            si el reporte fue antes del cierre del mercado, o el día hábil siguiente si fue después.
           </p>
         </header>
 
@@ -90,19 +90,22 @@ export default function EarningsPage() {
               <>
                 <p className="result-summary">
                   <strong>{result.symbol}</strong>: superó estimaciones en {result.n_beats} de{" "}
-                  {result.reactions.length} trimestres, no las alcanzó en {result.n_misses}. De las reacciones
+                  {result.reactions.length} reportes, no las alcanzó en {result.n_misses}. De las reacciones
                   medibles, {pct(result.pct_positive_reaction_day)} fueron positivas el día del reporte.
                 </p>
 
-                <p className="error">
-                  Muestra muy pequeña ({result.reactions.length} trimestres) — orientativo, no una predicción.
-                </p>
+                {result.reactions.length < 8 && (
+                  <p className="error">
+                    Muestra chica ({result.reactions.length} reportes, probablemente por salida a bolsa reciente) —
+                    orientativo, no una predicción.
+                  </p>
+                )}
 
                 <div className="earnings-table-wrap card">
                   <table className="earnings-table">
                     <thead>
                       <tr>
-                        <th>Trimestre</th>
+                        <th>Fecha reporte</th>
                         <th>EPS real</th>
                         <th>EPS estimado</th>
                         <th>Sorpresa</th>
@@ -114,8 +117,8 @@ export default function EarningsPage() {
                     </thead>
                     <tbody>
                       {result.reactions.map((r) => (
-                        <tr key={r.quarter_end}>
-                          <td>{r.quarter_end}</td>
+                        <tr key={r.report_date}>
+                          <td>{r.report_date}</td>
                           <td>{r.eps_actual != null ? r.eps_actual.toFixed(2) : "—"}</td>
                           <td>{r.eps_estimate != null ? r.eps_estimate.toFixed(2) : "—"}</td>
                           <td>
@@ -137,26 +140,26 @@ export default function EarningsPage() {
                   </table>
                 </div>
 
-                {selectedQuarter && (
+                {selectedReport && (
                   <div className="card price-chart-card">
                     <div className="price-chart-header">
                       <h2 className="sidebar-title">Precio: 3 meses antes y después</h2>
                       <select
-                        value={selectedQuarter}
-                        onChange={(e) => setSelectedQuarter(e.target.value)}
+                        value={selectedReport}
+                        onChange={(e) => setSelectedReport(e.target.value)}
                         className="price-chart-select"
                       >
                         {result.reactions
                           .filter((r) => r.price_window.length > 0)
                           .map((r) => (
-                            <option key={r.quarter_end} value={r.quarter_end}>
-                              Trimestre {r.quarter_end} (earnings {r.reaction_date})
+                            <option key={r.report_date} value={r.report_date}>
+                              Reporte {r.report_date} (reacción {r.reaction_date})
                             </option>
                           ))}
                       </select>
                     </div>
                     {(() => {
-                      const selected = result.reactions.find((r) => r.quarter_end === selectedQuarter);
+                      const selected = result.reactions.find((r) => r.report_date === selectedReport);
                       return selected ? (
                         <PriceWindowChart priceWindow={selected.price_window} reactionDate={selected.reaction_date} />
                       ) : null;

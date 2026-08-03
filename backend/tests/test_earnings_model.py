@@ -1,7 +1,7 @@
-"""Tests for earnings_model.py's reaction-date inference (the workaround for
-Yahoo's unreliable earnings-calendar endpoint) and the forward-return/
-beat-miss bookkeeping built on top of it. Network calls are mocked —
-deterministic, synthetic data only.
+"""Tests for earnings_model.py's reaction-date logic, built on real report
+dates/times from market_data.earnings_history() (Yahoo's get_earnings_dates),
+and the forward-return/beat-miss bookkeeping on top of it. Network calls are
+mocked — deterministic, synthetic data only.
 
 Run from backend/: venv/Scripts/python -m unittest tests.test_earnings_model
 """
@@ -18,61 +18,64 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.pricing import earnings_model
 
 
-def _build_dated_price_series(start, periods, jump_near_date, jump_log_return, base_price=100.0, seed=0):
-    """A price series over real calendar business days, with one large,
-    dominant move injected at the business day closest to jump_near_date."""
+def _build_dated_price_series(start, periods, base_price=100.0, seed=0):
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range(start=start, periods=periods)
-    returns = rng.normal(0, 0.0015, periods)  # tiny noise, dwarfed by the injected jump
-
-    jump_pos = dates.get_indexer([pd.Timestamp(jump_near_date)], method="nearest")[0]
-    returns[jump_pos] = jump_log_return
-
+    returns = rng.normal(0, 0.0015, periods)
     log_prices = np.log(base_price) + np.cumsum(returns)
-    prices = pd.Series(np.exp(log_prices), index=dates)
-    return prices, dates[jump_pos]
+    return pd.Series(np.exp(log_prices), index=dates)
 
 
-class InferReactionDateTest(unittest.TestCase):
-    def test_picks_the_largest_move_within_the_window(self):
-        quarter_end = pd.Timestamp("2024-01-01")
-        prices, jump_date = _build_dated_price_series(
-            start="2023-06-01", periods=300, jump_near_date="2024-01-30", jump_log_return=0.15
-        )
+class ReactionDateTest(unittest.TestCase):
+    def setUp(self):
+        self.prices = _build_dated_price_series(start="2023-06-01", periods=300)
 
-        result = earnings_model._infer_reaction_date(prices, quarter_end)
+    def test_before_close_report_reacts_same_day(self):
+        # A Wednesday, well within the series, reported in the morning (BMO).
+        report_date = "2023-11-08"
+        result = earnings_model._reaction_date(report_date, report_hour=7, price_index=self.prices.index)
+        self.assertEqual(result, pd.Timestamp(report_date))
 
-        self.assertEqual(result, jump_date)
+    def test_after_close_report_reacts_next_trading_day(self):
+        report_date = "2023-11-08"  # a Wednesday
+        result = earnings_model._reaction_date(report_date, report_hour=16, price_index=self.prices.index)
+        self.assertEqual(result, pd.Timestamp("2023-11-09"))
 
-    def test_returns_none_when_window_has_no_data(self):
-        quarter_end = pd.Timestamp("2030-01-01")  # far past any available data
-        prices, _ = _build_dated_price_series(
-            start="2023-06-01", periods=300, jump_near_date="2024-01-30", jump_log_return=0.15
-        )
+    def test_after_close_report_on_friday_rolls_to_monday(self):
+        report_date = "2023-11-10"  # a Friday
+        result = earnings_model._reaction_date(report_date, report_hour=16, price_index=self.prices.index)
+        self.assertEqual(result, pd.Timestamp("2023-11-13"))
 
-        self.assertIsNone(earnings_model._infer_reaction_date(prices, quarter_end))
+    def test_report_predating_available_price_history_returns_none(self):
+        # Price history here starts 2023-06-01; a report from a year earlier
+        # has no real reaction available, and must not silently snap to the
+        # series' first day as if that were the reaction.
+        result = earnings_model._reaction_date("2022-01-15", report_hour=16, price_index=self.prices.index)
+        self.assertIsNone(result)
+
+    def test_report_far_past_available_price_history_returns_none(self):
+        result = earnings_model._reaction_date("2030-01-15", report_hour=16, price_index=self.prices.index)
+        self.assertIsNone(result)
 
 
 class AnalyzeTest(unittest.TestCase):
     def _analyze_with(self, prices, records):
-        with patch.object(earnings_model.market_data, "get_price_history", return_value=pd.DataFrame({"adj_close": prices})), patch.object(
-            earnings_model.market_data, "earnings_history", return_value=records
-        ):
+        with patch.object(
+            earnings_model.market_data, "get_price_history", return_value=pd.DataFrame({"adj_close": prices})
+        ), patch.object(earnings_model.market_data, "earnings_history", return_value=records):
             return earnings_model.analyze("TEST")
 
     def test_forward_returns_measured_from_close_before_reaction(self):
-        prices, jump_date = _build_dated_price_series(
-            start="2023-06-01", periods=300, jump_near_date="2024-01-30", jump_log_return=0.15
-        )
-        records = [{"quarter_end": "2024-01-01", "eps_actual": 1.1, "eps_estimate": 1.0, "surprise_pct": 0.10}]
+        prices = _build_dated_price_series(start="2023-06-01", periods=300)
+        records = [{"report_date": "2023-11-08", "report_hour": 16, "eps_actual": 1.1, "eps_estimate": 1.0, "surprise_pct": 0.10}]
 
         result = self._analyze_with(prices, records)
 
         self.assertEqual(len(result.reactions), 1)
         reaction = result.reactions[0]
-        self.assertEqual(reaction.reaction_date, jump_date.strftime("%Y-%m-%d"))
+        self.assertEqual(reaction.reaction_date, "2023-11-09")
 
-        pos = list(prices.index).index(jump_date)
+        pos = list(prices.index).index(pd.Timestamp("2023-11-09"))
         prev_close = prices.iloc[pos - 1]
         expected_1d = prices.iloc[pos] / prev_close - 1
         expected_1w = prices.iloc[pos - 1 + 5] / prev_close - 1
@@ -84,13 +87,11 @@ class AnalyzeTest(unittest.TestCase):
         self.assertAlmostEqual(reaction.forward_returns["1m"], expected_1m, places=9)
 
     def test_beats_and_misses_counted_from_surprise_sign(self):
-        prices, _ = _build_dated_price_series(
-            start="2023-06-01", periods=300, jump_near_date="2024-01-30", jump_log_return=0.15
-        )
+        prices = _build_dated_price_series(start="2023-06-01", periods=300)
         records = [
-            {"quarter_end": "2024-01-01", "eps_actual": 1.1, "eps_estimate": 1.0, "surprise_pct": 0.10},
-            {"quarter_end": "2023-10-01", "eps_actual": 0.9, "eps_estimate": 1.0, "surprise_pct": -0.10},
-            {"quarter_end": "2023-07-01", "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0},
+            {"report_date": "2023-11-08", "report_hour": 16, "eps_actual": 1.1, "eps_estimate": 1.0, "surprise_pct": 0.10},
+            {"report_date": "2023-08-08", "report_hour": 16, "eps_actual": 0.9, "eps_estimate": 1.0, "surprise_pct": -0.10},
+            {"report_date": "2023-06-08", "report_hour": 16, "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0},
         ]
 
         result = self._analyze_with(prices, records)
@@ -99,27 +100,22 @@ class AnalyzeTest(unittest.TestCase):
         self.assertEqual(result.n_misses, 1)
 
     def test_price_window_spans_roughly_three_months_each_side(self):
-        prices, jump_date = _build_dated_price_series(
-            start="2023-06-01", periods=300, jump_near_date="2024-01-30", jump_log_return=0.15
-        )
-        records = [{"quarter_end": "2024-01-01", "eps_actual": 1.1, "eps_estimate": 1.0, "surprise_pct": 0.10}]
+        prices = _build_dated_price_series(start="2023-06-01", periods=300)
+        records = [{"report_date": "2023-11-08", "report_hour": 16, "eps_actual": 1.1, "eps_estimate": 1.0, "surprise_pct": 0.10}]
 
         result = self._analyze_with(prices, records)
         window = result.reactions[0].price_window
+        reaction_date = pd.Timestamp("2023-11-09")
 
         self.assertGreater(len(window), 0)
         first_date = pd.Timestamp(window[0]["date"])
         last_date = pd.Timestamp(window[-1]["date"])
-        self.assertGreaterEqual(first_date, jump_date - pd.DateOffset(months=3) - pd.Timedelta(days=3))
-        self.assertLessEqual(last_date, jump_date + pd.DateOffset(months=3) + pd.Timedelta(days=3))
-        self.assertLess(first_date, jump_date)
-        self.assertGreater(last_date, jump_date)
+        self.assertGreaterEqual(first_date, reaction_date - pd.DateOffset(months=3) - pd.Timedelta(days=3))
+        self.assertLessEqual(last_date, reaction_date + pd.DateOffset(months=3) + pd.Timedelta(days=3))
 
-    def test_no_reaction_date_found_yields_empty_reaction(self):
-        prices, _ = _build_dated_price_series(
-            start="2023-06-01", periods=300, jump_near_date="2024-01-30", jump_log_return=0.15
-        )
-        records = [{"quarter_end": "2030-01-01", "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0}]
+    def test_report_outside_price_history_yields_empty_reaction(self):
+        prices = _build_dated_price_series(start="2023-06-01", periods=300)
+        records = [{"report_date": "2020-01-01", "report_hour": 16, "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0}]
 
         result = self._analyze_with(prices, records)
 

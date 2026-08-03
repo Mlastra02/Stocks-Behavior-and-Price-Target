@@ -5,19 +5,19 @@ price moves, this anchors on real, identifiable earnings report events and
 looks at how the stock actually moved afterward, alongside the EPS surprise
 (beat/miss) that (probably) caused it.
 
-Yahoo's earnings-CALENDAR endpoint (yfinance's get_earnings_dates) is
-unreliable in this environment — it times out under light load — so instead
-this uses earnings_history (EPS actual/estimate/surprise per fiscal quarter,
-a more reliable Yahoo endpoint) and INFERS the actual report date: within a
-window of trading days after each quarter's end, the day with the largest
-single-day price move is taken as the market's reaction to that report. This
-is a heuristic, not the real calendar date, but earnings reactions are
-usually the standout move in that window, so it tends to land on the right
-day or the one next to it.
+market_data.earnings_history() gives the real report date and hour (Yahoo's
+get_earnings_dates endpoint), not just the fiscal quarter it covers, so the
+reaction date only needs a small adjustment, not the wide-window "biggest
+move" inference this module used before that endpoint became reliable here:
+reports at/after AFTER_MARKET_CLOSE_HOUR (market close, in the exchange's
+local time) move the market on the NEXT trading session, not the report's
+own calendar day.
 
-Only ~4 quarters are available per stock (Yahoo's free history depth for
-this endpoint), so this is explicitly a small-sample, indicative-only view —
-even more limited than momentum_model.py.
+Depth varies a lot across the tracked universe — established large caps go
+back ~12 years, but DASH (2020 IPO) and LOAR (2024 IPO) are much shorter —
+and reactions can only be computed for quarters that fall within this
+stock's fetched price history (see market_data_client.TRACKED_STOCKS'
+history_since), so the usable sample can still end up small for newer names.
 """
 from dataclasses import dataclass
 from typing import List, Optional
@@ -26,8 +26,12 @@ import pandas as pd
 
 from app.data import market_data_client as market_data
 
-REACTION_WINDOW_START_DAYS = 15  # earnings rarely land < ~3 weeks after quarter end
-REACTION_WINDOW_END_DAYS = 50  # or later than ~7 weeks after
+AFTER_MARKET_CLOSE_HOUR = 12  # reports at/after this hour react the next session
+# If the nearest available price is more than this many days after the
+# target reaction date, there's a real gap (the report predates this stock's
+# fetched price history) rather than a normal weekend/holiday roll-forward —
+# treat it as no data, not a misleadingly distant "reaction".
+MAX_REACTION_SEARCH_GAP_DAYS = 7
 FORWARD_HORIZONS_DAYS = {"1d": 1, "1w": 5, "1m": 20}
 CHART_WINDOW_MONTHS_BEFORE = 3
 CHART_WINDOW_MONTHS_AFTER = 3
@@ -35,7 +39,7 @@ CHART_WINDOW_MONTHS_AFTER = 3
 
 @dataclass
 class EarningsReaction:
-    quarter_end: str
+    report_date: str
     eps_actual: Optional[float]
     eps_estimate: Optional[float]
     surprise_pct: Optional[float]
@@ -54,20 +58,20 @@ class EarningsAnalysisResult:
     pct_positive_reaction_day: Optional[float]
 
 
-def _infer_reaction_date(prices, quarter_end_ts):
-    window = prices[
-        (prices.index >= quarter_end_ts + pd.Timedelta(days=REACTION_WINDOW_START_DAYS))
-        & (prices.index <= quarter_end_ts + pd.Timedelta(days=REACTION_WINDOW_END_DAYS))
-    ]
-    if len(window) < 2:
-        return None
+def _reaction_date(report_date: str, report_hour: int, price_index: pd.DatetimeIndex) -> Optional[pd.Timestamp]:
+    """The first trading day the market could react on: the report's own day
+    for a before-close report, the next trading day for an at/after-close one."""
+    target = pd.Timestamp(report_date)
+    if report_hour >= AFTER_MARKET_CLOSE_HOUR:
+        target = target + pd.Timedelta(days=1)
 
-    daily_returns = window / window.shift(1) - 1
-    daily_returns = daily_returns.dropna()
-    if daily_returns.empty:
+    candidates = price_index[price_index >= target]
+    if candidates.empty:
         return None
-
-    return daily_returns.abs().idxmax()
+    reaction = candidates[0]
+    if (reaction - target).days > MAX_REACTION_SEARCH_GAP_DAYS:
+        return None
+    return reaction
 
 
 def _price_window(prices, center_date):
@@ -80,17 +84,17 @@ def _price_window(prices, center_date):
 def analyze(symbol: str) -> EarningsAnalysisResult:
     records = market_data.earnings_history(symbol)
     prices = market_data.get_price_history(symbol)["adj_close"]
-    price_index = list(prices.index)
+    price_index = prices.index
+    price_index_list = list(price_index)
 
     reactions: List[EarningsReaction] = []
     for record in records:
-        quarter_end_ts = pd.Timestamp(record["quarter_end"])
-        reaction_date = _infer_reaction_date(prices, quarter_end_ts)
+        reaction_date = _reaction_date(record["report_date"], record["report_hour"], price_index)
 
         if reaction_date is None:
             reactions.append(
                 EarningsReaction(
-                    quarter_end=record["quarter_end"],
+                    report_date=record["report_date"],
                     eps_actual=record["eps_actual"],
                     eps_estimate=record["eps_estimate"],
                     surprise_pct=record["surprise_pct"],
@@ -102,19 +106,19 @@ def analyze(symbol: str) -> EarningsAnalysisResult:
             )
             continue
 
-        pos = price_index.index(reaction_date)
+        pos = price_index_list.index(reaction_date)
         prev_close = float(prices.iloc[pos - 1]) if pos > 0 else None
         reaction_day_return = float(prices.iloc[pos] / prev_close - 1) if prev_close else None
 
         forward_returns = {}
         for label, horizon in FORWARD_HORIZONS_DAYS.items():
             target_pos = pos - 1 + horizon  # measured from the close right before the reaction
-            if pos > 0 and target_pos < len(price_index):
+            if pos > 0 and target_pos < len(price_index_list):
                 forward_returns[label] = float(prices.iloc[target_pos] / prices.iloc[pos - 1] - 1)
 
         reactions.append(
             EarningsReaction(
-                quarter_end=record["quarter_end"],
+                report_date=record["report_date"],
                 eps_actual=record["eps_actual"],
                 eps_estimate=record["eps_estimate"],
                 surprise_pct=record["surprise_pct"],

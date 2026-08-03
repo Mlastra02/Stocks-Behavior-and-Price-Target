@@ -136,7 +136,13 @@ def analyze(symbol: str) -> MomentumAnalysisResult:
     current_move = float(best_return.iloc[-1])
     current_window = int(best_window.iloc[-1])
     current_price = float(prices.iloc[-1])
+    # Symmetric band: a match must be no smaller than MATCH_THRESHOLD_FRACTION
+    # of the current move AND no larger than its reciprocal. Without the
+    # upper bound, a small current move (e.g. 5%) would happily "match"
+    # historical moves several times its size (e.g. 30%) just for clearing
+    # the floor — comparing an 8% day to a 30% one isn't a real comparison.
     threshold = abs(current_move) * MATCH_THRESHOLD_FRACTION
+    upper_threshold = abs(current_move) / MATCH_THRESHOLD_FRACTION
 
     max_forward = max(FORWARD_WINDOWS_DAYS)
     max_candidate_window = max(CANDIDATE_WINDOWS)
@@ -159,14 +165,19 @@ def analyze(symbol: str) -> MomentumAnalysisResult:
         else:
             i += 1
 
-    matching_episodes = [e for e in all_episodes if abs(e["move_pct"]) >= threshold]
+    matching_episodes = [e for e in all_episodes if threshold <= abs(e["move_pct"]) <= upper_threshold]
 
     used_fallback = False
     if matching_episodes:
         episodes = matching_episodes
     elif all_episodes:
         used_fallback = True
-        episodes = sorted(all_episodes, key=lambda e: abs(e["move_pct"]), reverse=True)[:FALLBACK_MAX_EPISODES]
+        # Closest in magnitude to the current move, not just "biggest
+        # available" — a fallback should pick the nearest miss in either
+        # direction, not necessarily the largest historical move on record.
+        episodes = sorted(all_episodes, key=lambda e: abs(abs(e["move_pct"]) - abs(current_move)))[
+            :FALLBACK_MAX_EPISODES
+        ]
     else:
         episodes = []
 

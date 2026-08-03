@@ -138,14 +138,29 @@ def momentum_analysis():
 
 @app.get("/api/earnings-analysis")
 def earnings_analysis():
-    """Historical earnings-day reactions: EPS surprise + how the stock actually moved after."""
+    """Historical earnings-day reactions: EPS surprise + how the stock actually moved after.
+
+    Optional filters: require_uptrend_before / require_beat ("true"/"false"),
+    since_year (int) — each narrows which reports count, and all stats are
+    recomputed on the resulting subset.
+    """
     symbol = request.args.get("symbol", "").upper()
 
     if symbol not in TRACKED_STOCKS:
         return jsonify({"error": f"'{symbol}' no está en la lista de acciones soportadas"}), 400
 
     try:
-        result = earnings_model.analyze(symbol)
+        require_uptrend_before = _parse_optional_bool(request.args.get("require_uptrend_before"))
+        require_beat = _parse_optional_bool(request.args.get("require_beat"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    since_year = request.args.get("since_year", type=int)
+
+    try:
+        result = earnings_model.analyze(
+            symbol, require_uptrend_before=require_uptrend_before, require_beat=require_beat, since_year=since_year
+        )
     except market_data.MarketDataError as exc:
         return jsonify({"error": str(exc)}), 502
 
@@ -155,6 +170,17 @@ def earnings_analysis():
             "n_beats": result.n_beats,
             "n_misses": result.n_misses,
             "pct_positive_reaction_day": result.pct_positive_reaction_day,
+            "surprise_reaction_correlation": result.surprise_reaction_correlation,
+            "beat_stats": {
+                "n": result.beat_stats.n,
+                "mean_reaction": result.beat_stats.mean_reaction,
+                "median_reaction": result.beat_stats.median_reaction,
+            },
+            "miss_stats": {
+                "n": result.miss_stats.n,
+                "mean_reaction": result.miss_stats.mean_reaction,
+                "median_reaction": result.miss_stats.median_reaction,
+            },
             "reactions": [
                 {
                     "report_date": r.report_date,
@@ -165,6 +191,10 @@ def earnings_analysis():
                     "reaction_day_return": r.reaction_day_return,
                     "forward_returns": r.forward_returns,
                     "price_window": r.price_window,
+                    "trend_before_pct": r.trend_before_pct,
+                    "volume_ratio": r.volume_ratio,
+                    "sector_reaction_day_return": r.sector_reaction_day_return,
+                    "excess_reaction_day_return": r.excess_reaction_day_return,
                 }
                 for r in result.reactions
             ],

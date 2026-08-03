@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE, pct } from "./api";
+import { API_BASE, pct, TRI_STATE_OPTIONS } from "./api";
 
 const HORIZON_LABELS = { 5: "+1 semana", 10: "+2 semanas", 20: "+1 mes" };
 
@@ -16,12 +16,6 @@ function ReturnStat({ label, value }) {
     </div>
   );
 }
-
-const TRI_STATE_OPTIONS = [
-  { value: "", label: "Cualquiera" },
-  { value: "true", label: "Solo con" },
-  { value: "false", label: "Solo sin" },
-];
 
 export default function MomentumPage() {
   const [stocks, setStocks] = useState([]);

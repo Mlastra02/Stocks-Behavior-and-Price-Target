@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -30,11 +31,11 @@ def _set_window_move(returns, start, window, total_log_return):
 
 
 class AnalyzeEventMatchingTest(unittest.TestCase):
-    def _analyze_with(self, prices, analyst_target=None):
+    def _analyze_with(self, prices, analyst_target=None, earnings_records=None, **kwargs):
         with patch.object(momentum_model.market_data, "get_price_history", return_value=prices), patch.object(
             momentum_model.market_data, "analyst_price_target", return_value=analyst_target
-        ):
-            return momentum_model.analyze("TEST")
+        ), patch.object(momentum_model.market_data, "earnings_history", return_value=earnings_records or []):
+            return momentum_model.analyze("TEST", **kwargs)
 
     def test_window_proximity_filter_excludes_distant_duration_episodes(self):
         rng = np.random.default_rng(1)
@@ -126,6 +127,75 @@ class AnalyzeEventMatchingTest(unittest.TestCase):
         for e in result.episode_details:
             expected = abs(e["move_pct"]) / abs(result.current_move_pct)
             self.assertAlmostEqual(e["pct_of_current"], expected, places=9)
+
+
+class ContextFilterTest(unittest.TestCase):
+    def _analyze_with(self, prices, earnings_records=None, **kwargs):
+        with patch.object(momentum_model.market_data, "get_price_history", return_value=prices), patch.object(
+            momentum_model.market_data, "analyst_price_target", return_value=None
+        ), patch.object(momentum_model.market_data, "earnings_history", return_value=earnings_records or []):
+            return momentum_model.analyze("TEST", **kwargs)
+
+    def _two_episode_series(self):
+        rng = np.random.default_rng(6)
+        n = 500
+        returns = list(rng.normal(0, 0.0015, n))
+        _set_window_move(returns, 200, 3, math.log(1.20))  # episode A
+        _set_window_move(returns, 300, 3, math.log(1.20))  # episode B
+        _set_window_move(returns, n - 3, 3, math.log(1.20))  # current move
+        return build_price_series(returns)
+
+    def test_require_earnings_keeps_only_coinciding_episodes(self):
+        prices = self._two_episode_series()
+        baseline = self._analyze_with(prices)
+        episode_a_date = next(e["date"] for e in baseline.episode_details if e["date"] < "2018-11-01")
+
+        earnings_records = [{"report_date": episode_a_date, "report_hour": 16, "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0}]
+
+        result = self._analyze_with(prices, earnings_records=earnings_records, require_earnings=True)
+
+        self.assertGreaterEqual(len(result.episode_details), 1)
+        for e in result.episode_details:
+            self.assertTrue(e["coincided_with_earnings"])
+        self.assertTrue(any(e["date"] == episode_a_date for e in result.episode_details))
+
+    def test_require_no_earnings_excludes_coinciding_episodes(self):
+        prices = self._two_episode_series()
+        baseline = self._analyze_with(prices)
+        episode_a_date = next(e["date"] for e in baseline.episode_details if e["date"] < "2018-11-01")
+
+        earnings_records = [{"report_date": episode_a_date, "report_hour": 16, "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0}]
+
+        result = self._analyze_with(prices, earnings_records=earnings_records, require_earnings=False)
+
+        for e in result.episode_details:
+            self.assertFalse(e["coincided_with_earnings"])
+            self.assertNotEqual(e["date"], episode_a_date)
+
+    def test_require_volume_anomaly_keeps_only_high_volume_episodes(self):
+        prices = self._two_episode_series()
+        baseline = self._analyze_with(prices)
+        episode_a_date = next(e["date"] for e in baseline.episode_details if e["date"] < "2018-11-01")
+
+        # Spike volume exactly across that episode's own 3-day window (not
+        # bleeding into the trailing baseline window used to judge "anomaly").
+        pos = prices.index.get_loc(pd.Timestamp(episode_a_date))
+        vol_col = prices.columns.get_loc("volume")
+        prices.iloc[pos - 2: pos + 1, vol_col] = 5_000_000.0
+
+        result = self._analyze_with(prices, require_volume_anomaly=True)
+
+        self.assertGreaterEqual(len(result.episode_details), 1)
+        for e in result.episode_details:
+            self.assertTrue(e["volume_anomaly"])
+        self.assertTrue(any(e["date"] == episode_a_date for e in result.episode_details))
+
+    def test_current_move_context_is_reported(self):
+        prices = self._two_episode_series()
+        result = self._analyze_with(prices)
+
+        self.assertIsInstance(result.current_coincided_with_earnings, bool)
+        self.assertIsInstance(result.current_volume_anomaly, bool)
 
 
 class AnalystContextTest(unittest.TestCase):

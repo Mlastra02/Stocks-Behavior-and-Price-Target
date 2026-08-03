@@ -62,12 +62,24 @@ def stocks_overview():
     return jsonify(overview)
 
 
+def _parse_optional_bool(raw):
+    if raw is None:
+        return None
+    if raw.lower() in ("true", "1"):
+        return True
+    if raw.lower() in ("false", "0"):
+        return False
+    raise ValueError(f"'{raw}' no es un booleano válido (true/false)")
+
+
 @app.get("/api/momentum-analysis")
 def momentum_analysis():
     """Historical event study: after moves like the current one, what happened next?
 
     The lookback window is auto-detected (see momentum_model.py) — the caller
-    only supplies the symbol.
+    only needs to supply the symbol, plus optionally require_earnings /
+    require_volume_anomaly ("true"/"false") to filter which historical
+    episodes count, on top of magnitude + duration matching.
     """
     symbol = request.args.get("symbol", "").upper()
 
@@ -75,7 +87,15 @@ def momentum_analysis():
         return jsonify({"error": f"'{symbol}' no está en la lista de acciones soportadas"}), 400
 
     try:
-        result = momentum_model.analyze(symbol)
+        require_earnings = _parse_optional_bool(request.args.get("require_earnings"))
+        require_volume_anomaly = _parse_optional_bool(request.args.get("require_volume_anomaly"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        result = momentum_model.analyze(
+            symbol, require_earnings=require_earnings, require_volume_anomaly=require_volume_anomaly
+        )
     except market_data.MarketDataError as exc:
         return jsonify({"error": str(exc)}), 502
 
@@ -87,6 +107,9 @@ def momentum_analysis():
             "current_price": result.current_price,
             "detected_window_days": result.detected_window_days,
             "current_move_pct": result.current_move_pct,
+            "current_coincided_with_earnings": result.current_coincided_with_earnings,
+            "current_volume_anomaly": result.current_volume_anomaly,
+            "current_volume_ratio": result.current_volume_ratio,
             "threshold_pct": result.threshold_pct,
             "episodes_found": result.episodes_found,
             "episode_details": result.episode_details,

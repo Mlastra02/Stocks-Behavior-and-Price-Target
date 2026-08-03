@@ -46,6 +46,14 @@ WINDOW_PROXIMITY_RATIO = 2.0
 MIN_EPISODES_FOR_CONFIDENCE = 5
 FALLBACK_MAX_EPISODES = 5
 
+# Context tags (not the actual "why", which needs a news source we don't
+# have — these are the two proxies we can compute from data already on
+# hand): did the episode coincide with a known earnings report, and was
+# trading volume unusually high during it.
+EARNINGS_COINCIDENCE_BUFFER_DAYS = 1  # an after-close report's reaction lands the next session
+VOLUME_BASELINE_DAYS = 60
+VOLUME_ANOMALY_MULTIPLIER = 1.5
+
 
 @dataclass
 class ForwardWindowStats:
@@ -72,9 +80,12 @@ class MomentumAnalysisResult:
     current_price: float
     detected_window_days: int
     current_move_pct: float
+    current_coincided_with_earnings: bool
+    current_volume_anomaly: bool
+    current_volume_ratio: Optional[float]
     threshold_pct: float
     episodes_found: int
-    episode_details: List[dict]  # [{"date": ..., "window_days": ..., "move_pct": ...}, ...]
+    episode_details: List[dict]  # [{"date": ..., "window_days": ..., "move_pct": ..., "coincided_with_earnings": ..., ...}]
     forward_windows: Dict[int, ForwardWindowStats]
     low_confidence: bool
     used_fallback: bool
@@ -129,13 +140,57 @@ def _analyst_context(symbol: str, prices: pd.Series, current_window: int) -> Ana
     )
 
 
-def analyze(symbol: str) -> MomentumAnalysisResult:
-    prices = market_data.get_price_history(symbol)["adj_close"]
+def _earnings_dates(symbol: str) -> set:
+    """Known earnings report dates for this symbol, or an empty set if the
+    (known-flaky) earnings endpoint is unavailable — episodes just come back
+    untagged for earnings coincidence rather than failing the whole analysis."""
+    try:
+        records = market_data.earnings_history(symbol)
+    except market_data.MarketDataError:
+        return set()
+    return {pd.Timestamp(r["report_date"]) for r in records}
+
+
+def _tag_context(price_index: pd.DatetimeIndex, volume: pd.Series, date, window_days: int, earnings_dates: set):
+    pos = price_index.get_loc(date)
+    start_pos = max(0, pos - window_days + 1)
+    episode_dates = price_index[start_pos: pos + 1]
+
+    coincided_with_earnings = any(
+        any(abs((ed - report).days) <= EARNINGS_COINCIDENCE_BUFFER_DAYS for report in earnings_dates)
+        for ed in episode_dates
+    )
+
+    baseline_start = max(0, start_pos - VOLUME_BASELINE_DAYS)
+    baseline_volume = volume.iloc[baseline_start:start_pos]
+    episode_volume = volume.iloc[start_pos: pos + 1]
+
+    volume_ratio = None
+    volume_anomaly = False
+    if len(baseline_volume) >= 10 and baseline_volume.mean() > 0:
+        volume_ratio = float(episode_volume.mean() / baseline_volume.mean())
+        volume_anomaly = volume_ratio >= VOLUME_ANOMALY_MULTIPLIER
+
+    return coincided_with_earnings, volume_anomaly, volume_ratio
+
+
+def analyze(
+    symbol: str,
+    require_earnings: Optional[bool] = None,
+    require_volume_anomaly: Optional[bool] = None,
+) -> MomentumAnalysisResult:
+    history = market_data.get_price_history(symbol)
+    prices = history["adj_close"]
+    volume = history["volume"]
+    earnings_dates = _earnings_dates(symbol)
     best_return, best_window = _best_window_series(prices)
 
     current_move = float(best_return.iloc[-1])
     current_window = int(best_window.iloc[-1])
     current_price = float(prices.iloc[-1])
+    current_coincided_with_earnings, current_volume_anomaly, current_volume_ratio = _tag_context(
+        prices.index, volume, prices.index[-1], current_window, earnings_dates
+    )
     # Symmetric band: a match must be no smaller than MATCH_THRESHOLD_FRACTION
     # of the current move AND no larger than its reciprocal. Without the
     # upper bound, a small current move (e.g. 5%) would happily "match"
@@ -160,8 +215,22 @@ def analyze(symbol: str) -> MomentumAnalysisResult:
         date = candidate_idx[i]
         window = int(best_window.loc[date])
         if bool(same_direction.loc[date]) and min_window <= window <= max_window:
-            all_episodes.append({"date": date, "window_days": window, "move_pct": float(best_return.loc[date])})
-            i += window + max_forward  # jump past this episode so the next one is independent
+            coincided, vol_anomaly, vol_ratio = _tag_context(prices.index, volume, date, window, earnings_dates)
+            passes_context = (require_earnings is None or coincided == require_earnings) and (
+                require_volume_anomaly is None or vol_anomaly == require_volume_anomaly
+            )
+            if passes_context:
+                all_episodes.append(
+                    {
+                        "date": date,
+                        "window_days": window,
+                        "move_pct": float(best_return.loc[date]),
+                        "coincided_with_earnings": coincided,
+                        "volume_anomaly": vol_anomaly,
+                        "volume_ratio": vol_ratio,
+                    }
+                )
+            i += window + max_forward  # jump past this move regardless of the context filter
         else:
             i += 1
 
@@ -211,6 +280,9 @@ def analyze(symbol: str) -> MomentumAnalysisResult:
         current_price=current_price,
         detected_window_days=current_window,
         current_move_pct=current_move,
+        current_coincided_with_earnings=current_coincided_with_earnings,
+        current_volume_anomaly=current_volume_anomaly,
+        current_volume_ratio=current_volume_ratio,
         threshold_pct=threshold,
         episodes_found=len(episodes),
         episode_details=[
@@ -219,6 +291,9 @@ def analyze(symbol: str) -> MomentumAnalysisResult:
                 "window_days": e["window_days"],
                 "move_pct": e["move_pct"],
                 "pct_of_current": abs(e["move_pct"]) / abs(current_move) if current_move else None,
+                "coincided_with_earnings": e["coincided_with_earnings"],
+                "volume_anomaly": e["volume_anomaly"],
+                "volume_ratio": e["volume_ratio"],
             }
             for e in episodes
         ],

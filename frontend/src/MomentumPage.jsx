@@ -17,9 +17,17 @@ function ReturnStat({ label, value }) {
   );
 }
 
+const TRI_STATE_OPTIONS = [
+  { value: "", label: "Cualquiera" },
+  { value: "true", label: "Solo con" },
+  { value: "false", label: "Solo sin" },
+];
+
 export default function MomentumPage() {
   const [stocks, setStocks] = useState([]);
   const [symbol, setSymbol] = useState("");
+  const [requireEarnings, setRequireEarnings] = useState("");
+  const [requireVolumeAnomaly, setRequireVolumeAnomaly] = useState("");
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -41,6 +49,8 @@ export default function MomentumPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ symbol });
+      if (requireEarnings !== "") params.set("require_earnings", requireEarnings);
+      if (requireVolumeAnomaly !== "") params.set("require_volume_anomaly", requireVolumeAnomaly);
       const res = await fetch(`${API_BASE}/api/momentum-analysis?${params}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error desconocido");
@@ -80,6 +90,35 @@ export default function MomentumPage() {
             </select>
           </div>
 
+          <div className="field">
+            <label htmlFor="require_earnings">Episodios que coincidieron con earnings</label>
+            <select id="require_earnings" value={requireEarnings} onChange={(e) => setRequireEarnings(e.target.value)}>
+              {TRI_STATE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label htmlFor="require_volume">Episodios con volumen anómalo</label>
+            <select
+              id="require_volume"
+              value={requireVolumeAnomaly}
+              onChange={(e) => setRequireVolumeAnomaly(e.target.value)}
+            >
+              {TRI_STATE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <p className="field-hint">
+              Filtrar reduce la muestra — algunas combinaciones pueden no encontrar ningún episodio.
+            </p>
+          </div>
+
           <button type="submit" disabled={loading}>
             {loading ? "Analizando…" : "Analizar racha actual"}
           </button>
@@ -98,6 +137,14 @@ export default function MomentumPage() {
               en los últimos {result.detected_window_days} días hábiles (precio actual: $
               {result.current_price.toFixed(2)}) — esa fue la racha que detectó automáticamente como la más
               relevante.
+            </p>
+
+            <p className="field-hint" style={{ marginBottom: "1.25rem" }}>
+              Contexto de esta racha: {result.current_coincided_with_earnings ? "coincidió con earnings" : "sin earnings cerca"}
+              {" · "}
+              {result.current_volume_anomaly
+                ? `volumen anómalo (${result.current_volume_ratio.toFixed(1)}x el promedio)`
+                : "volumen normal"}
             </p>
 
             {ctx && ctx.target_price != null && (
@@ -161,6 +208,12 @@ export default function MomentumPage() {
                       {result.used_fallback && e.pct_of_current != null && (
                         <span className="field-hint"> — {(e.pct_of_current * 100).toFixed(0)}% del movimiento actual</span>
                       )}
+                      <span className="field-hint">
+                        {" "}
+                        · {e.coincided_with_earnings ? "earnings" : "sin earnings"}
+                        {" · "}
+                        {e.volume_anomaly ? `volumen ${e.volume_ratio.toFixed(1)}x` : "volumen normal"}
+                      </span>
                     </li>
                   ))}
                 </ul>

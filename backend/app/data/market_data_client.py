@@ -46,7 +46,7 @@ def _history_start_date(symbol: str) -> str:
 
 
 def get_price_history(symbol: str) -> pd.DataFrame:
-    """Split/dividend-adjusted daily close prices, most recent last. Cached per symbol.
+    """Split/dividend-adjusted daily close + volume, most recent last. Cached per symbol.
 
     Fetched from a fixed start date (see TRACKED_STOCKS / DEFAULT_HISTORY_SINCE),
     not a rolling "last N years" window — the window grows as time passes
@@ -59,7 +59,7 @@ def get_price_history(symbol: str) -> pd.DataFrame:
         history = yf.Ticker(symbol).history(start=start, interval="1d", auto_adjust=True)
         if history.empty:
             raise MarketDataError(f"No se recibió serie de precios para {symbol}")
-        df = history[["Close"]].rename(columns={"Close": "adj_close"})
+        df = history[["Close", "Volume"]].rename(columns={"Close": "adj_close", "Volume": "volume"})
         df.index = pd.to_datetime(df.index).tz_localize(None)
         return df
 

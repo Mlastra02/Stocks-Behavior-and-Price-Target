@@ -85,10 +85,15 @@ class AnalyzeTest(unittest.TestCase):
         expected_1w = prices.iloc[pos - 1 + 5] / prev_close - 1
         expected_1m = prices.iloc[pos - 1 + 20] / prev_close - 1
 
+        expected_2w = prices.iloc[pos - 1 + 10] / prev_close - 1
+        expected_3m = prices.iloc[pos - 1 + 60] / prev_close - 1
+
         self.assertAlmostEqual(reaction.reaction_day_return, expected_1d, places=9)
         self.assertAlmostEqual(reaction.forward_returns["1d"], expected_1d, places=9)
         self.assertAlmostEqual(reaction.forward_returns["1w"], expected_1w, places=9)
+        self.assertAlmostEqual(reaction.forward_returns["2w"], expected_2w, places=9)
         self.assertAlmostEqual(reaction.forward_returns["1m"], expected_1m, places=9)
+        self.assertAlmostEqual(reaction.forward_returns["3m"], expected_3m, places=9)
 
     def test_beats_and_misses_counted_from_surprise_sign(self):
         prices = _build_dated_price_series(start="2023-06-01", periods=300)
@@ -220,6 +225,56 @@ class TrendAndVolumeTest(unittest.TestCase):
         misses_only = self._analyze_with(prices, records, require_beat=False)
         self.assertEqual(len(misses_only.reactions), 1)
         self.assertLess(misses_only.reactions[0].surprise_pct, 0)
+
+    def test_trend_range_filter_keeps_only_reports_within_bounds(self):
+        n = 300
+        rng = np.random.default_rng(5)
+        returns = rng.normal(0, 0.0005, n)
+        dates = pd.bdate_range(start="2023-06-01", periods=n)
+
+        small_pos, big_pos = 150, 250
+        returns[small_pos - 25: small_pos] = 0.002  # a mild climb (~+5%)
+        returns[big_pos - 25: big_pos] = 0.015  # a steep climb (~+50%)
+        log_prices = np.log(100.0) + np.cumsum(returns)
+        prices = pd.Series(np.exp(log_prices), index=dates)
+
+        records = [
+            {"report_date": dates[small_pos].strftime("%Y-%m-%d"), "report_hour": 7, "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0},
+            {"report_date": dates[big_pos].strftime("%Y-%m-%d"), "report_hour": 7, "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0},
+        ]
+
+        result = self._analyze_with(prices, records, trend_min_pct=0.0, trend_max_pct=0.10)
+
+        self.assertEqual(len(result.reactions), 1)
+        self.assertLessEqual(result.reactions[0].trend_before_pct, 0.10)
+
+    def test_require_sector_outperformance_filters_by_excess_sign(self):
+        stock_prices = _build_dated_price_series(start="2020-06-01", periods=400, seed=8)
+        sector_prices = _build_dated_price_series(start="2020-06-01", periods=400, seed=9, base_price=50.0)
+
+        positions = [200, 300]
+        records = [
+            {
+                "report_date": stock_prices.index[p].strftime("%Y-%m-%d"),
+                "report_hour": 7,
+                "eps_actual": 1.0,
+                "eps_estimate": 1.0,
+                "surprise_pct": 0.0,
+            }
+            for p in positions
+        ]
+
+        def fake_history(symbol):
+            return _price_df(stock_prices) if symbol == "NVDA" else _price_df(sector_prices)
+
+        with patch.object(earnings_model.market_data, "get_price_history", side_effect=fake_history), patch.object(
+            earnings_model.market_data, "earnings_history", return_value=records
+        ):
+            outperform_only = earnings_model.analyze("NVDA", require_sector_outperformance=True)
+            underperform_only = earnings_model.analyze("NVDA", require_sector_outperformance=False)
+
+        self.assertTrue(all(r.excess_reaction_day_return > 0 for r in outperform_only.reactions))
+        self.assertTrue(all(r.excess_reaction_day_return < 0 for r in underperform_only.reactions))
 
 
 class AggregateStatsTest(unittest.TestCase):

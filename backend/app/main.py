@@ -152,6 +152,7 @@ def earnings_analysis():
     try:
         require_uptrend_before = _parse_optional_bool(request.args.get("require_uptrend_before"))
         require_beat = _parse_optional_bool(request.args.get("require_beat"))
+        require_sector_outperformance = _parse_optional_bool(request.args.get("require_sector_outperformance"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -159,6 +160,8 @@ def earnings_analysis():
     trend_window_days = request.args.get(
         "trend_window_days", earnings_model.DEFAULT_TREND_WINDOW_DAYS, type=int
     )
+    trend_min_pct = request.args.get("trend_min_pct", type=float)
+    trend_max_pct = request.args.get("trend_max_pct", type=float)
 
     try:
         result = earnings_model.analyze(
@@ -167,6 +170,9 @@ def earnings_analysis():
             require_beat=require_beat,
             since_year=since_year,
             trend_window_days=trend_window_days,
+            trend_min_pct=trend_min_pct,
+            trend_max_pct=trend_max_pct,
+            require_sector_outperformance=require_sector_outperformance,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

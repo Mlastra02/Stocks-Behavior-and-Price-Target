@@ -41,10 +41,17 @@ function StatBlock({ label, stats }) {
 export default function EarningsPage() {
   const [stocks, setStocks] = useState([]);
   const [symbol, setSymbol] = useState("");
+  // Primary filters
   const [requireUptrend, setRequireUptrend] = useState("");
   const [trendWindowDays, setTrendWindowDays] = useState("20");
+  // Extra filters, isolate an arbitrary trend range or sector-relative outcome
+  const [trendMinPct, setTrendMinPct] = useState("");
+  const [trendMaxPct, setTrendMaxPct] = useState("");
+  const [requireSectorOutperformance, setRequireSectorOutperformance] = useState("");
+  // Filters moved to the end, opt-in
   const [requireBeat, setRequireBeat] = useState("");
   const [sinceYear, setSinceYear] = useState("");
+
   const [result, setResult] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
   const [error, setError] = useState(null);
@@ -68,6 +75,9 @@ export default function EarningsPage() {
     try {
       const params = new URLSearchParams({ symbol, trend_window_days: trendWindowDays });
       if (requireUptrend !== "") params.set("require_uptrend_before", requireUptrend);
+      if (trendMinPct !== "") params.set("trend_min_pct", String(Number(trendMinPct) / 100));
+      if (trendMaxPct !== "") params.set("trend_max_pct", String(Number(trendMaxPct) / 100));
+      if (requireSectorOutperformance !== "") params.set("require_sector_outperformance", requireSectorOutperformance);
       if (requireBeat !== "") params.set("require_beat", requireBeat);
       if (sinceYear !== "") params.set("since_year", sinceYear);
 
@@ -127,6 +137,44 @@ export default function EarningsPage() {
               <option value="10">2 semanas antes</option>
               <option value="20">1 mes antes</option>
               <option value="60">3 meses antes</option>
+            </select>
+          </div>
+
+          <div className="field">
+            <label>Rango de tendencia previa (%)</label>
+            <div style={{ display: "flex", gap: "0.6rem" }}>
+              <input
+                type="number"
+                placeholder="Mínimo, ej. -10"
+                value={trendMinPct}
+                onChange={(e) => setTrendMinPct(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <input
+                type="number"
+                placeholder="Máximo, ej. 15"
+                value={trendMaxPct}
+                onChange={(e) => setTrendMaxPct(e.target.value)}
+                style={{ flex: 1 }}
+              />
+            </div>
+            <p className="field-hint">
+              Aislá un rango exacto de tendencia previa (usa la ventana elegida arriba). Vacío = sin límite en ese lado.
+            </p>
+          </div>
+
+          <div className="field">
+            <label htmlFor="require_sector">Excedió al sector ese día</label>
+            <select
+              id="require_sector"
+              value={requireSectorOutperformance}
+              onChange={(e) => setRequireSectorOutperformance(e.target.value)}
+            >
+              {TRI_STATE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -195,14 +243,16 @@ export default function EarningsPage() {
                         <th>Fecha reporte</th>
                         <th>EPS real</th>
                         <th>EPS estimado</th>
-                        <th>Sorpresa</th>
+                        <th>Sorpresa EPS</th>
                         <th>Tendencia previa ({TREND_WINDOW_LABELS[result.trend_window_days]})</th>
                         <th>Fecha reacción</th>
                         <th>Día</th>
                         <th>Volumen</th>
                         <th>Exceso vs sector</th>
                         <th>+1 sem</th>
+                        <th>+2 sem</th>
                         <th>+1 mes</th>
+                        <th>+3 meses</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -229,7 +279,13 @@ export default function EarningsPage() {
                             <SignedPct value={r.forward_returns["1w"]} />
                           </td>
                           <td>
+                            <SignedPct value={r.forward_returns["2w"]} />
+                          </td>
+                          <td>
                             <SignedPct value={r.forward_returns["1m"]} />
+                          </td>
+                          <td>
+                            <SignedPct value={r.forward_returns["3m"]} />
                           </td>
                         </tr>
                       ))}

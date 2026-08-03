@@ -34,7 +34,7 @@ AFTER_MARKET_CLOSE_HOUR = 12  # reports at/after this hour react the next sessio
 # fetched price history) rather than a normal weekend/holiday roll-forward —
 # treat it as no data, not a misleadingly distant "reaction".
 MAX_REACTION_SEARCH_GAP_DAYS = 7
-FORWARD_HORIZONS_DAYS = {"1d": 1, "1w": 5, "1m": 20}
+FORWARD_HORIZONS_DAYS = {"1d": 1, "1w": 5, "2w": 10, "1m": 20, "3m": 60}
 CHART_WINDOW_MONTHS_BEFORE = 3
 CHART_WINDOW_MONTHS_AFTER = 3
 DEFAULT_TREND_WINDOW_DAYS = 20  # ~1 trading month, trailing return right before the reaction
@@ -149,6 +149,9 @@ def analyze(
     require_beat: Optional[bool] = None,
     since_year: Optional[int] = None,
     trend_window_days: int = DEFAULT_TREND_WINDOW_DAYS,
+    trend_min_pct: Optional[float] = None,
+    trend_max_pct: Optional[float] = None,
+    require_sector_outperformance: Optional[bool] = None,
 ) -> EarningsAnalysisResult:
     if trend_window_days not in VALID_TREND_WINDOW_DAYS:
         raise ValueError(f"trend_window_days debe ser uno de: {sorted(VALID_TREND_WINDOW_DAYS)}")
@@ -233,6 +236,19 @@ def analyze(
             r
             for r in reactions
             if r.trend_before_pct is not None and (r.trend_before_pct > 0) == require_uptrend_before
+        ]
+
+    if trend_min_pct is not None:
+        reactions = [r for r in reactions if r.trend_before_pct is not None and r.trend_before_pct >= trend_min_pct]
+    if trend_max_pct is not None:
+        reactions = [r for r in reactions if r.trend_before_pct is not None and r.trend_before_pct <= trend_max_pct]
+
+    if require_sector_outperformance is not None:
+        reactions = [
+            r
+            for r in reactions
+            if r.excess_reaction_day_return is not None
+            and (r.excess_reaction_day_return > 0) == require_sector_outperformance
         ]
 
     valid_reaction_days = [r.reaction_day_return for r in reactions if r.reaction_day_return is not None]

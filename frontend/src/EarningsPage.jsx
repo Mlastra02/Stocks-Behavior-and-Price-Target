@@ -266,6 +266,26 @@ export default function EarningsPage() {
 
   const [selectedReport, setSelectedReport] = useState(null);
 
+  // Reports the user manually pulled out of the analysis (outliers, bad
+  // data, whatever) — a set of report_date strings. Independent of the
+  // secondary filters: it survives filter changes and only resets on a
+  // fresh "Analizar" fetch, since it's about specific reports, not a rule.
+  const [excludedReports, setExcludedReports] = useState(() => new Set());
+
+  function excludeReport(reportDate) {
+    setExcludedReports((prev) => new Set(prev).add(reportDate));
+  }
+  function restoreReport(reportDate) {
+    setExcludedReports((prev) => {
+      const next = new Set(prev);
+      next.delete(reportDate);
+      return next;
+    });
+  }
+  function restoreAllReports() {
+    setExcludedReports(new Set());
+  }
+
   useEffect(() => {
     fetch(`${API_BASE}/api/stocks`)
       .then((res) => res.json())
@@ -276,8 +296,19 @@ export default function EarningsPage() {
       .catch(() => setError("No se pudo conectar con el backend"));
   }, []);
 
+  // Domains stay pinned to the full initial fetch — they don't shrink as
+  // reports get excluded, so the range strips' axes never shift underfoot
+  // while you're picking outliers to remove.
   const yearDomain = useMemo(() => (result ? computeYearDomain(result.reactions) : null), [result]);
   const trendDomain = useMemo(() => (result ? computeTrendDomain(result.reactions) : null), [result]);
+
+  // Everything below this — filters, counts, stats, the table, the strips —
+  // is computed off analyzableReactions instead of the raw fetch, so a
+  // manually excluded report disappears from the whole analysis at once.
+  const analyzableReactions = useMemo(() => {
+    if (!result) return [];
+    return result.reactions.filter((r) => !excludedReports.has(r.report_date));
+  }, [result, excludedReports]);
 
   function currentFilterState() {
     return {
@@ -293,10 +324,9 @@ export default function EarningsPage() {
   }
 
   const filteredReactions = useMemo(() => {
-    if (!result) return [];
-    return applySecondaryFilters(result.reactions, currentFilterState());
+    return applySecondaryFilters(analyzableReactions, currentFilterState());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, secRequireBeat, secRequireSector, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
+  }, [analyzableReactions, secRequireBeat, secRequireSector, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
 
   const stats = useMemo(() => computeStats(filteredReactions), [filteredReactions]);
 
@@ -323,16 +353,14 @@ export default function EarningsPage() {
   // if you picked that option, holding every OTHER active secondary filter
   // constant — so the buttons stay honest about what clicking them will do.
   const beatOptionSubset = useMemo(() => {
-    if (!result) return [];
-    return applySecondaryFilters(result.reactions, { ...currentFilterState(), requireBeat: "" });
+    return applySecondaryFilters(analyzableReactions, { ...currentFilterState(), requireBeat: "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, secRequireSector, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
+  }, [analyzableReactions, secRequireSector, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
 
   const sectorOptionSubset = useMemo(() => {
-    if (!result) return [];
-    return applySecondaryFilters(result.reactions, { ...currentFilterState(), requireSector: "" });
+    return applySecondaryFilters(analyzableReactions, { ...currentFilterState(), requireSector: "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, secRequireBeat, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
+  }, [analyzableReactions, secRequireBeat, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
 
   const beatOptions = useMemo(
     () =>
@@ -365,30 +393,31 @@ export default function EarningsPage() {
   // OTHER active secondary filters already exclude, so dragging one range
   // shows its effect against what's really still on the table.
   const yearStripSubset = useMemo(() => {
-    if (!result || !yearDomain) return [];
-    return applySecondaryFilters(result.reactions, { ...currentFilterState(), yearMin: yearDomain.min, yearMax: yearDomain.max });
+    if (!yearDomain) return [];
+    return applySecondaryFilters(analyzableReactions, { ...currentFilterState(), yearMin: yearDomain.min, yearMax: yearDomain.max });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, secRequireBeat, secRequireSector, secTrendMin, secTrendMax, yearDomain, trendDomain]);
+  }, [analyzableReactions, secRequireBeat, secRequireSector, secTrendMin, secTrendMax, yearDomain, trendDomain]);
 
   const trendStripSubset = useMemo(() => {
-    if (!result || !trendDomain) return [];
-    return applySecondaryFilters(result.reactions, { ...currentFilterState(), trendMin: trendDomain.min, trendMax: trendDomain.max });
+    if (!trendDomain) return [];
+    return applySecondaryFilters(analyzableReactions, { ...currentFilterState(), trendMin: trendDomain.min, trendMax: trendDomain.max });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, secRequireBeat, secRequireSector, secYearMin, secYearMax, yearDomain, trendDomain]);
+  }, [analyzableReactions, secRequireBeat, secRequireSector, secYearMin, secYearMax, yearDomain, trendDomain]);
 
+  // Manually excluded reports simply don't appear as dots — same as they
+  // don't appear in the table — rather than showing as a third, "excluded"
+  // visual state on top of the existing active/filtered-out one.
   const yearStripPoints = useMemo(() => {
-    if (!result) return [];
     const includedDates = new Set(yearStripSubset.map((r) => r.report_date));
-    return result.reactions.map((r) => ({ value: reportYear(r), active: includedDates.has(r.report_date) }));
-  }, [result, yearStripSubset]);
+    return analyzableReactions.map((r) => ({ value: reportYear(r), active: includedDates.has(r.report_date) }));
+  }, [analyzableReactions, yearStripSubset]);
 
   const trendStripPoints = useMemo(() => {
-    if (!result) return [];
     const includedDates = new Set(trendStripSubset.map((r) => r.report_date));
-    return result.reactions
+    return analyzableReactions
       .filter((r) => r.trend_before_pct != null)
       .map((r) => ({ value: r.trend_before_pct, active: includedDates.has(r.report_date) }));
-  }, [result, trendStripSubset]);
+  }, [analyzableReactions, trendStripSubset]);
 
   // Keeps the chart selection stable across secondary-filter tweaks when
   // possible, and only jumps to a fallback report when the selected one got
@@ -420,6 +449,7 @@ export default function EarningsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error desconocido");
       setResult(data);
+      setExcludedReports(new Set());
       setSecRequireBeat("");
       setSecRequireSector("");
       if (data.reactions.length > 0) {
@@ -564,6 +594,34 @@ export default function EarningsPage() {
                   </div>
                 </div>
 
+                {excludedReports.size > 0 && (
+                  <div className="card earnings-secondary-filters">
+                    <div className="secondary-filters-header">
+                      <h2 className="sidebar-title">Excluidos manualmente ({excludedReports.size})</h2>
+                      <button type="button" className="link-button" onClick={restoreAllReports}>
+                        Restaurar todos
+                      </button>
+                    </div>
+                    <p className="field-hint" style={{ marginBottom: "0.75rem" }}>
+                      Fuera de la tabla, las estadísticas, los filtros y el gráfico hasta que los restaures. Clic en
+                      uno para restaurarlo.
+                    </p>
+                    <div className="toggle-group">
+                      {[...excludedReports].sort().map((date) => (
+                        <button
+                          key={date}
+                          type="button"
+                          className="toggle-button"
+                          onClick={() => restoreReport(date)}
+                          title="Volver a incluir en el análisis"
+                        >
+                          {date} ×
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {filteredReactions.length === 0 ? (
                   <p className="result-summary">Ningún reporte cumple estos filtros secundarios.</p>
                 ) : (
@@ -571,7 +629,7 @@ export default function EarningsPage() {
                     <p className="result-summary">
                       <strong>{result.symbol}</strong>
                       {hasActiveSecondaryFilters && (
-                        <> ({filteredReactions.length} de {result.reactions.length} reportes tras los filtros secundarios)</>
+                        <> ({filteredReactions.length} de {analyzableReactions.length} reportes tras los filtros secundarios)</>
                       )}
                       : superó estimaciones en {stats.nBeats} reportes, no las alcanzó en {stats.nMisses}. De las
                       reacciones medibles, {pct(stats.pctPositive)} fueron positivas el día del reporte.
@@ -614,13 +672,14 @@ export default function EarningsPage() {
 
                     <p className="field-hint" style={{ marginBottom: "0.5rem" }}>
                       Clic en una fila para ver ese reporte en el gráfico · fondo verde/rojo = beat/miss · borde
-                      izquierdo verde/rojo = venía subiendo/bajando antes del reporte.
+                      izquierdo verde/rojo = venía subiendo/bajando antes del reporte · × para sacarlo del análisis.
                     </p>
 
                     <div className="earnings-table-wrap card">
                       <table className="earnings-table">
                         <thead>
                           <tr>
+                            <th></th>
                             <th>Fecha reporte</th>
                             <th>EPS real</th>
                             <th>EPS estimado</th>
@@ -652,6 +711,16 @@ export default function EarningsPage() {
                               .join(" ");
                             return (
                               <tr key={r.report_date} onClick={() => clickable && setSelectedReport(r.report_date)} className={rowClasses}>
+                                <td onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    className="row-exclude-button"
+                                    title="Quitar del análisis"
+                                    onClick={() => excludeReport(r.report_date)}
+                                  >
+                                    ×
+                                  </button>
+                                </td>
                                 <td>{r.report_date}</td>
                                 <td>{r.eps_actual != null ? r.eps_actual.toFixed(2) : "—"}</td>
                                 <td>{r.eps_estimate != null ? r.eps_estimate.toFixed(2) : "—"}</td>

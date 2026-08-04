@@ -549,7 +549,7 @@ export default function EarningsPage() {
 
                     <p className="field-hint" style={{ marginBottom: "0.5rem" }}>
                       Clic en una fila para ver ese reporte en el gráfico · fondo verde/rojo = beat/miss · borde
-                      izquierdo verde/rojo = superó/quedó debajo del sector.
+                      izquierdo verde/rojo = venía subiendo/bajando antes del reporte.
                     </p>
 
                     <div className="earnings-table-wrap card">
@@ -579,8 +579,8 @@ export default function EarningsPage() {
                               clickable && "earnings-row-clickable",
                               selected && "earnings-row-selected",
                               r.surprise_pct != null && (r.surprise_pct > 0 ? "earnings-row-beat" : r.surprise_pct < 0 ? "earnings-row-miss" : null),
-                              r.excess_reaction_day_return != null &&
-                                (r.excess_reaction_day_return > 0 ? "earnings-row-sector-up" : "earnings-row-sector-down"),
+                              r.trend_before_pct != null &&
+                                (r.trend_before_pct > 0 ? "earnings-row-trend-up" : "earnings-row-trend-down"),
                             ]
                               .filter(Boolean)
                               .join(" ");

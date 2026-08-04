@@ -507,11 +507,11 @@
   background-color: color-mix(in srgb, #d03b3b 10%, transparent);
 }
 
-.earnings-row-sector-up {
+.earnings-row-trend-up {
   border-left: 3px solid var(--success-text);
 }
 
-.earnings-row-sector-down {
+.earnings-row-trend-down {
   border-left: 3px solid #d03b3b;
 }
 
@@ -544,6 +544,13 @@
 .range-strip-dot-inactive {
   fill: var(--text-muted);
   opacity: 0.35;
+}
+
+.range-strip-domain-label {
+  fill: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 .range-strip-handle-hit {

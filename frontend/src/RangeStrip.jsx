@@ -86,6 +86,13 @@ export default function RangeStrip({ points, domainMin, domainMax, selectedMin, 
           />
         ))}
 
+        <text x={MARGIN.left} y={HEIGHT - 6} textAnchor="start" className="range-strip-domain-label">
+          {formatValue(domainMin)}
+        </text>
+        <text x={WIDTH - MARGIN.right} y={HEIGHT - 6} textAnchor="end" className="range-strip-domain-label">
+          {formatValue(domainMax)}
+        </text>
+
         <g onPointerDown={() => setDragging("min")} className="range-strip-handle-hit">
           <circle cx={xAt(selectedMin)} cy={TRACK_Y} r={8} className="range-strip-handle" />
         </g>

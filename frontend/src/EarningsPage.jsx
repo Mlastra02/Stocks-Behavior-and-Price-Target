@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE, pct } from "./api";
+import { API_BASE, pct, TRI_STATE_OPTIONS } from "./api";
 import PriceWindowChart from "./PriceWindowChart";
+import RangeStrip from "./RangeStrip";
 
 const TREND_WINDOW_LABELS = { 5: "1 sem", 10: "2 sem", 20: "1 mes", 60: "3 meses" };
 const MIN_PAIRS_FOR_CORRELATION = 5; // mirrors earnings_model.MIN_PAIRS_FOR_CORRELATION
 
-const UPTREND_TOGGLE_OPTIONS = [
-  { value: "", label: "Cualquiera" },
-  { value: "true", label: "Solo subiendo" },
-  { value: "false", label: "Solo bajando" },
-];
 const BEAT_TOGGLE_OPTIONS = [
   { value: "", label: "Cualquiera" },
   { value: "true", label: "Solo beats" },
@@ -92,24 +88,53 @@ function computeStats(reactions) {
   };
 }
 
+const RANGE_EPSILON = 1e-9;
+
+function reportYear(reaction) {
+  return Number(reaction.report_date.slice(0, 4));
+}
+
+function computeYearDomain(reactions) {
+  const years = reactions.map(reportYear);
+  return { min: Math.min(...years), max: Math.max(...years) };
+}
+
+function computeTrendDomain(reactions) {
+  const values = reactions.map((r) => r.trend_before_pct).filter((v) => v != null);
+  if (values.length === 0) return null;
+  return { min: Math.min(...values), max: Math.max(...values) };
+}
+
+// A range filter is only "active" on the side(s) a handle has actually been
+// dragged in from the domain's extreme — otherwise it's a no-op, including
+// for reports whose value is null (so an unmoved strip never hides them).
 function applySecondaryFilters(reactions, filters) {
-  const { requireBeat, sinceYear, trendMinPct, trendMaxPct, requireSector } = filters;
+  const { requireBeat, requireSector, yearMin, yearMax, yearDomain, trendMin, trendMax, trendDomain } = filters;
   return reactions.filter((r) => {
     if (requireBeat !== "") {
       if (r.surprise_pct == null || String(r.surprise_pct > 0) !== requireBeat) return false;
     }
-    if (sinceYear !== "") {
-      if (Number(r.report_date.slice(0, 4)) < Number(sinceYear)) return false;
-    }
-    if (trendMinPct !== "") {
-      if (r.trend_before_pct == null || r.trend_before_pct < Number(trendMinPct) / 100) return false;
-    }
-    if (trendMaxPct !== "") {
-      if (r.trend_before_pct == null || r.trend_before_pct > Number(trendMaxPct) / 100) return false;
-    }
     if (requireSector !== "") {
       if (r.excess_reaction_day_return == null || String(r.excess_reaction_day_return > 0) !== requireSector)
         return false;
+    }
+    if (yearDomain) {
+      const minActive = yearMin > yearDomain.min + RANGE_EPSILON;
+      const maxActive = yearMax < yearDomain.max - RANGE_EPSILON;
+      if (minActive || maxActive) {
+        const year = reportYear(r);
+        if (minActive && year < yearMin) return false;
+        if (maxActive && year > yearMax) return false;
+      }
+    }
+    if (trendDomain) {
+      const minActive = trendMin > trendDomain.min + RANGE_EPSILON;
+      const maxActive = trendMax < trendDomain.max - RANGE_EPSILON;
+      if (minActive || maxActive) {
+        if (r.trend_before_pct == null) return false;
+        if (minActive && r.trend_before_pct < trendMin) return false;
+        if (maxActive && r.trend_before_pct > trendMax) return false;
+      }
     }
     return true;
   });
@@ -178,12 +203,15 @@ export default function EarningsPage() {
   const [loading, setLoading] = useState(false);
 
   // Secondary filters — applied instantly, client-side, on top of whatever
-  // "Analizar" already fetched. No new request on change.
+  // "Analizar" already fetched. No new request on change. The two range
+  // filters default to their full domain (i.e. "no filter") and only start
+  // excluding once a handle is dragged in from an extreme.
   const [secRequireBeat, setSecRequireBeat] = useState("");
-  const [secSinceYear, setSecSinceYear] = useState("");
-  const [secTrendMinPct, setSecTrendMinPct] = useState("");
-  const [secTrendMaxPct, setSecTrendMaxPct] = useState("");
   const [secRequireSector, setSecRequireSector] = useState("");
+  const [secYearMin, setSecYearMin] = useState(0);
+  const [secYearMax, setSecYearMax] = useState(0);
+  const [secTrendMin, setSecTrendMin] = useState(0);
+  const [secTrendMax, setSecTrendMax] = useState(0);
 
   const [selectedReport, setSelectedReport] = useState(null);
 
@@ -197,29 +225,119 @@ export default function EarningsPage() {
       .catch(() => setError("No se pudo conectar con el backend"));
   }, []);
 
+  const yearDomain = useMemo(() => (result ? computeYearDomain(result.reactions) : null), [result]);
+  const trendDomain = useMemo(() => (result ? computeTrendDomain(result.reactions) : null), [result]);
+
+  function currentFilterState() {
+    return {
+      requireBeat: secRequireBeat,
+      requireSector: secRequireSector,
+      yearMin: secYearMin,
+      yearMax: secYearMax,
+      yearDomain,
+      trendMin: secTrendMin,
+      trendMax: secTrendMax,
+      trendDomain,
+    };
+  }
+
   const filteredReactions = useMemo(() => {
     if (!result) return [];
-    return applySecondaryFilters(result.reactions, {
-      requireBeat: secRequireBeat,
-      sinceYear: secSinceYear,
-      trendMinPct: secTrendMinPct,
-      trendMaxPct: secTrendMaxPct,
-      requireSector: secRequireSector,
-    });
-  }, [result, secRequireBeat, secSinceYear, secTrendMinPct, secTrendMaxPct, secRequireSector]);
+    return applySecondaryFilters(result.reactions, currentFilterState());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, secRequireBeat, secRequireSector, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
 
   const stats = useMemo(() => computeStats(filteredReactions), [filteredReactions]);
 
   const hasActiveSecondaryFilters =
-    secRequireBeat !== "" || secSinceYear !== "" || secTrendMinPct !== "" || secTrendMaxPct !== "" || secRequireSector !== "";
+    secRequireBeat !== "" ||
+    secRequireSector !== "" ||
+    (yearDomain && (secYearMin > yearDomain.min + RANGE_EPSILON || secYearMax < yearDomain.max - RANGE_EPSILON)) ||
+    (trendDomain && (secTrendMin > trendDomain.min + RANGE_EPSILON || secTrendMax < trendDomain.max - RANGE_EPSILON));
 
   function clearSecondaryFilters() {
     setSecRequireBeat("");
-    setSecSinceYear("");
-    setSecTrendMinPct("");
-    setSecTrendMaxPct("");
     setSecRequireSector("");
+    if (yearDomain) {
+      setSecYearMin(yearDomain.min);
+      setSecYearMax(yearDomain.max);
+    }
+    if (trendDomain) {
+      setSecTrendMin(trendDomain.min);
+      setSecTrendMax(trendDomain.max);
+    }
   }
+
+  // Toggle-button labels show a live count of how many reports would match
+  // if you picked that option, holding every OTHER active secondary filter
+  // constant — so the buttons stay honest about what clicking them will do.
+  const beatOptionSubset = useMemo(() => {
+    if (!result) return [];
+    return applySecondaryFilters(result.reactions, { ...currentFilterState(), requireBeat: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, secRequireSector, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
+
+  const sectorOptionSubset = useMemo(() => {
+    if (!result) return [];
+    return applySecondaryFilters(result.reactions, { ...currentFilterState(), requireSector: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, secRequireBeat, secYearMin, secYearMax, secTrendMin, secTrendMax, yearDomain, trendDomain]);
+
+  const beatOptions = useMemo(
+    () =>
+      BEAT_TOGGLE_OPTIONS.map((o) => {
+        const n =
+          o.value === ""
+            ? beatOptionSubset.length
+            : beatOptionSubset.filter((r) => r.surprise_pct != null && String(r.surprise_pct > 0) === o.value).length;
+        return { ...o, label: `${o.label} (${n})` };
+      }),
+    [beatOptionSubset]
+  );
+
+  const sectorOptions = useMemo(
+    () =>
+      SECTOR_TOGGLE_OPTIONS.map((o) => {
+        const n =
+          o.value === ""
+            ? sectorOptionSubset.length
+            : sectorOptionSubset.filter(
+                (r) => r.excess_reaction_day_return != null && String(r.excess_reaction_day_return > 0) === o.value
+              ).length;
+        return { ...o, label: `${o.label} (${n})` };
+      }),
+    [sectorOptionSubset]
+  );
+
+  // The range strips plot every report at its true position (stable dots,
+  // regardless of the strip's own selection) but fade out points that the
+  // OTHER active secondary filters already exclude, so dragging one range
+  // shows its effect against what's really still on the table.
+  const yearStripSubset = useMemo(() => {
+    if (!result || !yearDomain) return [];
+    return applySecondaryFilters(result.reactions, { ...currentFilterState(), yearMin: yearDomain.min, yearMax: yearDomain.max });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, secRequireBeat, secRequireSector, secTrendMin, secTrendMax, yearDomain, trendDomain]);
+
+  const trendStripSubset = useMemo(() => {
+    if (!result || !trendDomain) return [];
+    return applySecondaryFilters(result.reactions, { ...currentFilterState(), trendMin: trendDomain.min, trendMax: trendDomain.max });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, secRequireBeat, secRequireSector, secYearMin, secYearMax, yearDomain, trendDomain]);
+
+  const yearStripPoints = useMemo(() => {
+    if (!result) return [];
+    const includedDates = new Set(yearStripSubset.map((r) => r.report_date));
+    return result.reactions.map((r) => ({ value: reportYear(r), active: includedDates.has(r.report_date) }));
+  }, [result, yearStripSubset]);
+
+  const trendStripPoints = useMemo(() => {
+    if (!result) return [];
+    const includedDates = new Set(trendStripSubset.map((r) => r.report_date));
+    return result.reactions
+      .filter((r) => r.trend_before_pct != null)
+      .map((r) => ({ value: r.trend_before_pct, active: includedDates.has(r.report_date) }));
+  }, [result, trendStripSubset]);
 
   // Keeps the chart selection stable across secondary-filter tweaks when
   // possible, and only jumps to a fallback report when the selected one got
@@ -251,7 +369,18 @@ export default function EarningsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error desconocido");
       setResult(data);
-      clearSecondaryFilters();
+      setSecRequireBeat("");
+      setSecRequireSector("");
+      if (data.reactions.length > 0) {
+        const yd = computeYearDomain(data.reactions);
+        setSecYearMin(yd.min);
+        setSecYearMax(yd.max);
+        const td = computeTrendDomain(data.reactions);
+        if (td) {
+          setSecTrendMin(td.min);
+          setSecTrendMax(td.max);
+        }
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -285,8 +414,14 @@ export default function EarningsPage() {
           </div>
 
           <div className="field">
-            <label>Venía subiendo antes del reporte</label>
-            <ToggleGroup value={requireUptrend} onChange={setRequireUptrend} options={UPTREND_TOGGLE_OPTIONS} />
+            <label htmlFor="require_uptrend">Venía subiendo antes del reporte</label>
+            <select id="require_uptrend" value={requireUptrend} onChange={(e) => setRequireUptrend(e.target.value)}>
+              {TRI_STATE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="field">
@@ -328,47 +463,52 @@ export default function EarningsPage() {
                   <div className="secondary-filters-grid">
                     <div className="field">
                       <label>Resultado del reporte</label>
-                      <ToggleGroup value={secRequireBeat} onChange={setSecRequireBeat} options={BEAT_TOGGLE_OPTIONS} />
+                      <ToggleGroup value={secRequireBeat} onChange={setSecRequireBeat} options={beatOptions} />
                     </div>
 
                     <div className="field">
                       <label>Excedió al sector ese día</label>
-                      <ToggleGroup
-                        value={secRequireSector}
-                        onChange={setSecRequireSector}
-                        options={SECTOR_TOGGLE_OPTIONS}
-                      />
+                      <ToggleGroup value={secRequireSector} onChange={setSecRequireSector} options={sectorOptions} />
                     </div>
 
                     <div className="field">
-                      <label htmlFor="sec_since_year">Desde el año</label>
-                      <input
-                        id="sec_since_year"
-                        type="number"
-                        placeholder="Ej. 2022 (vacío = todo)"
-                        value={secSinceYear}
-                        onChange={(e) => setSecSinceYear(e.target.value)}
-                      />
+                      <label>Año del reporte</label>
+                      {yearDomain && yearDomain.min !== yearDomain.max ? (
+                        <RangeStrip
+                          points={yearStripPoints}
+                          domainMin={yearDomain.min}
+                          domainMax={yearDomain.max}
+                          selectedMin={secYearMin}
+                          selectedMax={secYearMax}
+                          onChange={(min, max) => {
+                            setSecYearMin(Math.round(min));
+                            setSecYearMax(Math.round(max));
+                          }}
+                          formatValue={(v) => Math.round(v).toString()}
+                        />
+                      ) : (
+                        <p className="field-hint">Todos los reportes son del mismo año.</p>
+                      )}
                     </div>
 
                     <div className="field">
-                      <label>Rango de tendencia previa (%)</label>
-                      <div style={{ display: "flex", gap: "0.6rem" }}>
-                        <input
-                          type="number"
-                          placeholder="Mínimo, ej. -10"
-                          value={secTrendMinPct}
-                          onChange={(e) => setSecTrendMinPct(e.target.value)}
-                          style={{ flex: 1 }}
+                      <label>Rango de tendencia previa ({TREND_WINDOW_LABELS[result.trend_window_days]})</label>
+                      {trendDomain ? (
+                        <RangeStrip
+                          points={trendStripPoints}
+                          domainMin={trendDomain.min}
+                          domainMax={trendDomain.max}
+                          selectedMin={secTrendMin}
+                          selectedMax={secTrendMax}
+                          onChange={(min, max) => {
+                            setSecTrendMin(min);
+                            setSecTrendMax(max);
+                          }}
+                          formatValue={(v) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`}
                         />
-                        <input
-                          type="number"
-                          placeholder="Máximo, ej. 15"
-                          value={secTrendMaxPct}
-                          onChange={(e) => setSecTrendMaxPct(e.target.value)}
-                          style={{ flex: 1 }}
-                        />
-                      </div>
+                      ) : (
+                        <p className="field-hint">Sin datos de tendencia disponibles.</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -408,7 +548,8 @@ export default function EarningsPage() {
                     </div>
 
                     <p className="field-hint" style={{ marginBottom: "0.5rem" }}>
-                      Clic en una fila para ver ese reporte en el gráfico.
+                      Clic en una fila para ver ese reporte en el gráfico · fondo verde/rojo = beat/miss · borde
+                      izquierdo verde/rojo = superó/quedó debajo del sector.
                     </p>
 
                     <div className="earnings-table-wrap card">
@@ -434,15 +575,17 @@ export default function EarningsPage() {
                           {filteredReactions.map((r) => {
                             const clickable = r.price_window.length > 0;
                             const selected = r.report_date === selectedReport;
+                            const rowClasses = [
+                              clickable && "earnings-row-clickable",
+                              selected && "earnings-row-selected",
+                              r.surprise_pct != null && (r.surprise_pct > 0 ? "earnings-row-beat" : r.surprise_pct < 0 ? "earnings-row-miss" : null),
+                              r.excess_reaction_day_return != null &&
+                                (r.excess_reaction_day_return > 0 ? "earnings-row-sector-up" : "earnings-row-sector-down"),
+                            ]
+                              .filter(Boolean)
+                              .join(" ");
                             return (
-                              <tr
-                                key={r.report_date}
-                                onClick={() => clickable && setSelectedReport(r.report_date)}
-                                className={
-                                  (clickable ? "earnings-row-clickable" : "") +
-                                  (selected ? " earnings-row-selected" : "")
-                                }
-                              >
+                              <tr key={r.report_date} onClick={() => clickable && setSelectedReport(r.report_date)} className={rowClasses}>
                                 <td>{r.report_date}</td>
                                 <td>{r.eps_actual != null ? r.eps_actual.toFixed(2) : "—"}</td>
                                 <td>{r.eps_estimate != null ? r.eps_estimate.toFixed(2) : "—"}</td>

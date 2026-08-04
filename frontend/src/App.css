@@ -488,15 +488,80 @@
 
 .earnings-row-clickable {
   cursor: pointer;
-  transition: background-color 0.1s ease;
+  transition: filter 0.1s ease;
 }
 
 .earnings-row-clickable:hover {
-  background-color: var(--page-plane);
+  filter: brightness(0.96);
 }
 
 .earnings-row-selected {
-  background-color: color-mix(in srgb, var(--series-1) 12%, transparent);
+  box-shadow: inset 0 0 0 2px var(--series-1);
+}
+
+.earnings-row-beat {
+  background-color: color-mix(in srgb, var(--success-text) 10%, transparent);
+}
+
+.earnings-row-miss {
+  background-color: color-mix(in srgb, #d03b3b 10%, transparent);
+}
+
+.earnings-row-sector-up {
+  border-left: 3px solid var(--success-text);
+}
+
+.earnings-row-sector-down {
+  border-left: 3px solid #d03b3b;
+}
+
+.range-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.range-strip-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.range-strip-track {
+  stroke: var(--gridline);
+  stroke-width: 2;
+}
+
+.range-strip-selection {
+  fill: color-mix(in srgb, var(--series-1) 30%, transparent);
+}
+
+.range-strip-dot {
+  fill: var(--series-1);
+  opacity: 0.85;
+}
+
+.range-strip-dot-inactive {
+  fill: var(--text-muted);
+  opacity: 0.35;
+}
+
+.range-strip-handle-hit {
+  cursor: ew-resize;
+}
+
+.range-strip-handle {
+  fill: var(--series-1);
+  stroke: var(--surface-1);
+  stroke-width: 2;
+}
+
+.range-strip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .earnings-secondary-filters {

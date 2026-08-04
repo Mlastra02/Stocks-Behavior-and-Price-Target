@@ -96,6 +96,7 @@ class TechnicalAnalysisResult:
     rsi: BandedValue
     ema_short: BandedValue
     sma_medium: BandedValue
+    sma_long: BandedValue
     cross_signal: CrossSignal
     volume_signal: VolumeSignal
     chart: List[ChartPoint] = field(default_factory=list)
@@ -298,6 +299,7 @@ def analyze(symbol: str, chart_months: int = 24) -> TechnicalAnalysisResult:
     sma_medium = _ma_band(current_price, sma_medium_series.iloc[-1] if len(sma_medium_series) else None, f"la SMA({SMA_MEDIUM_WINDOW})")
 
     sma_long_series = prices.rolling(SMA_LONG_WINDOW).mean()
+    sma_long = _ma_band(current_price, sma_long_series.iloc[-1] if len(sma_long_series) else None, f"la SMA({SMA_LONG_WINDOW})")
     cross_signal = _cross_signal(sma_medium_series, sma_long_series)
 
     volume_signal = _volume_signal(prices, volume)
@@ -332,6 +334,7 @@ def analyze(symbol: str, chart_months: int = 24) -> TechnicalAnalysisResult:
         rsi=rsi,
         ema_short=ema_short,
         sma_medium=sma_medium,
+        sma_long=sma_long,
         cross_signal=cross_signal,
         volume_signal=volume_signal,
         chart=chart,

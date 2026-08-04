@@ -73,6 +73,7 @@ class TechnicalAnalysisEndpointSmokeTest(unittest.TestCase):
             rsi=ti.BandedValue(value=55.0, band="moderado", explanation="rsi ok"),
             ema_short=ti.BandedValue(value=195.0, band="moderado", explanation="ema ok"),
             sma_medium=ti.BandedValue(value=190.0, band="moderado", explanation="sma ok"),
+            sma_long=ti.BandedValue(value=180.0, band="moderado", explanation="sma200 ok"),
             cross_signal=ti.CrossSignal(state="bullish", sma50=190.0, sma200=180.0, gap_pct=0.05, explanation="cross ok"),
             volume_signal=ti.VolumeSignal(current_volume=1_000_000.0, volume_ratio=1.1, price_change_pct=0.02, quadrant=None, explanation="vol ok"),
             chart=[ti.ChartPoint(date="2026-08-04", price=200.0, sma50=190.0, sma200=180.0, ema20=195.0, rsi=55.0)],
@@ -84,6 +85,7 @@ class TechnicalAnalysisEndpointSmokeTest(unittest.TestCase):
 
         self.assertEqual(data["symbol"], "NVDA")
         self.assertEqual(data["rsi"]["band"], "moderado")
+        self.assertEqual(data["sma_long"]["value"], 180.0)
         self.assertEqual(data["cross_signal"]["state"], "bullish")
         self.assertEqual(len(data["chart"]), 1)
         self.assertEqual(data["chart"][0]["rsi"], 55.0)

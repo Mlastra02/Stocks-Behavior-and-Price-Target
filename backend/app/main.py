@@ -252,6 +252,7 @@ def technical_analysis():
             "rsi": banded(result.rsi),
             "ema_short": banded(result.ema_short),
             "sma_medium": banded(result.sma_medium),
+            "sma_long": banded(result.sma_long),
             "cross_signal": {
                 "state": result.cross_signal.state,
                 "sma50": result.cross_signal.sma50,

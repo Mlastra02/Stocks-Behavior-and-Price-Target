@@ -175,6 +175,9 @@ class AnalyzeTest(unittest.TestCase):
         # Every chart point should carry its own RSI/EMA20 alongside price, for the click-to-inspect chart.
         self.assertTrue(any(p.rsi is not None for p in result.chart))
         self.assertTrue(any(p.ema20 is not None for p in result.chart))
+        # 600 trading days is well past the SMA200 warm-up, so it should be banded like sma_medium/ema_short.
+        self.assertIsNotNone(result.sma_long.value)
+        self.assertIn(result.sma_long.band, ("alto", "moderado", "bajo"))
 
     def test_earnings_dates_within_chart_window_are_included_and_outside_ones_are_not(self):
         n = 600

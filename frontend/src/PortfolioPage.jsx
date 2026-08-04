@@ -482,7 +482,7 @@ export default function PortfolioPage() {
                   )}
                 </p>
 
-                <div className="tiles momentum-tiles" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginTop: "1rem" }}>
+                <div className="tiles momentum-tiles" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginTop: "1rem" }}>
                   <div className="tile">
                     <p className="tile-label">
                       <span className="tile-dot" style={{ background: "var(--series-1)" }} />
@@ -501,11 +501,19 @@ export default function PortfolioPage() {
                   </div>
                   <div className="tile">
                     <p className="tile-label">
-                      <span className="tile-dot" style={{ background: "var(--series-1)" }} />
+                      <span className="tile-dot" style={{ background: "var(--series-2)" }} />
                       SMA(50) — <BandTag band={technical.sma_medium.band} />
                     </p>
                     <p className="tile-value">{formatMoney(technical.sma_medium.value)}</p>
                     <p className="field-hint">{technical.sma_medium.explanation}</p>
+                  </div>
+                  <div className="tile">
+                    <p className="tile-label">
+                      <span className="tile-dot" style={{ background: "var(--series-3)" }} />
+                      SMA(200) — <BandTag band={technical.sma_long.band} />
+                    </p>
+                    <p className="tile-value">{formatMoney(technical.sma_long.value)}</p>
+                    <p className="field-hint">{technical.sma_long.explanation}</p>
                   </div>
                 </div>
 

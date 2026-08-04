@@ -9,6 +9,7 @@
   --gridline: #e1e0d9;
   --series-1: #2a78d6; /* Black-Scholes */
   --series-2: #eb6834; /* Montecarlo */
+  --series-3: #8347d1; /* SMA(200) / long-term series */
   --success-text: #006300;
 
   min-height: 100vh;
@@ -28,6 +29,7 @@
     --gridline: #2c2c2a;
     --series-1: #3987e5;
     --series-2: #d95926;
+    --series-3: #b389e8;
     --success-text: #0ca30c;
   }
 }
@@ -657,6 +659,19 @@
   color: #ffffff;
 }
 
+.band-tag {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--page-plane);
+}
+
 .price-chart-card {
   margin-top: 1.5rem;
   padding: 1.25rem;
@@ -738,4 +753,96 @@
 
 .price-chart-reaction-tag {
   color: var(--text-muted);
+}
+
+.technical-chart-svg {
+  cursor: pointer;
+}
+
+.technical-chart-sma50-line {
+  fill: none;
+  stroke: var(--series-2);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.technical-chart-sma200-line {
+  fill: none;
+  stroke: var(--series-3);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.technical-chart-earnings-line {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+
+.technical-chart-legend {
+  display: flex;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.technical-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.technical-chart-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  font-style: normal;
+}
+
+.technical-chart-dot-price {
+  background: var(--series-1);
+}
+
+.technical-chart-dot-sma50 {
+  background: var(--series-2);
+}
+
+.technical-chart-dot-sma200 {
+  background: var(--series-3);
+}
+
+.technical-chart-dot-earnings {
+  background: none;
+  border: 1px dashed var(--text-muted);
+  border-radius: 0;
+  width: 10px;
+  height: 0;
+}
+
+.technical-chart-detail {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+}
+
+.technical-chart-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.75rem;
+}
+
+.technical-chart-detail-grid strong {
+  font-size: 1.05rem;
+  font-variant-numeric: proportional-nums;
+}
+
+@media (max-width: 720px) {
+  .technical-chart-detail-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }

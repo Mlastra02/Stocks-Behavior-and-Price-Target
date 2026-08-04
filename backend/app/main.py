@@ -10,7 +10,8 @@ from flask_cors import CORS
 
 from app.config.stocks import TRACKED_STOCKS
 from app.data import market_data_client as market_data
-from app.pricing import black_scholes, earnings_model, momentum_model, monte_carlo, sector_model
+from app.data import portfolio_store
+from app.pricing import black_scholes, earnings_model, momentum_model, monte_carlo, sector_model, technical_indicators
 
 app = Flask(__name__)
 CORS(app)
@@ -218,6 +219,138 @@ def earnings_analysis():
             ],
         }
     )
+
+
+@app.get("/api/technical-analysis")
+def technical_analysis():
+    """RSI/SMA/EMA bands, golden/death-cross read, and the price-volume rule
+    for a single stock, plus a chart series (price + SMA50/SMA200/EMA20/RSI
+    per day, and earnings report dates in range) for the long-term view.
+    """
+    symbol = request.args.get("symbol", "").upper()
+
+    if symbol not in TRACKED_STOCKS:
+        return jsonify({"error": f"'{symbol}' no está en la lista de acciones soportadas"}), 400
+
+    chart_months = request.args.get("chart_months", 24, type=int)
+
+    try:
+        result = technical_indicators.analyze(symbol, chart_months=chart_months)
+    except market_data.MarketDataError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    def banded(b):
+        return {"value": b.value, "band": b.band, "explanation": b.explanation}
+
+    return jsonify(
+        {
+            "symbol": result.symbol,
+            "as_of_date": result.as_of_date,
+            "current_price": result.current_price,
+            "price_target": result.price_target,
+            "upside_pct": result.upside_pct,
+            "rsi": banded(result.rsi),
+            "ema_short": banded(result.ema_short),
+            "sma_medium": banded(result.sma_medium),
+            "cross_signal": {
+                "state": result.cross_signal.state,
+                "sma50": result.cross_signal.sma50,
+                "sma200": result.cross_signal.sma200,
+                "gap_pct": result.cross_signal.gap_pct,
+                "explanation": result.cross_signal.explanation,
+            },
+            "volume_signal": {
+                "current_volume": result.volume_signal.current_volume,
+                "volume_ratio": result.volume_signal.volume_ratio,
+                "price_change_pct": result.volume_signal.price_change_pct,
+                "quadrant": result.volume_signal.quadrant,
+                "explanation": result.volume_signal.explanation,
+            },
+            "chart": [
+                {
+                    "date": p.date,
+                    "price": p.price,
+                    "sma50": p.sma50,
+                    "sma200": p.sma200,
+                    "ema20": p.ema20,
+                    "rsi": p.rsi,
+                }
+                for p in result.chart
+            ],
+            "earnings_dates": result.earnings_dates,
+        }
+    )
+
+
+def _enrich_holdings(holdings: dict) -> dict:
+    """Attaches live price/value/gain/allocation to each stored holding."""
+    enriched = []
+    total_value = 0.0
+
+    for symbol, holding in holdings.items():
+        quantity = holding["quantity"]
+        avg_cost = holding["avg_cost"]
+        try:
+            current_price = market_data.latest_price(symbol)
+            daily_change_pct = market_data.daily_change_pct(symbol)
+        except market_data.MarketDataError:
+            current_price = None
+            daily_change_pct = None
+
+        current_value = current_price * quantity if current_price is not None else None
+        gain_pct = (current_price / avg_cost - 1) if current_price is not None else None
+        if current_value is not None:
+            total_value += current_value
+
+        enriched.append(
+            {
+                "symbol": symbol,
+                "name": TRACKED_STOCKS.get(symbol, {}).get("name", symbol),
+                "quantity": quantity,
+                "avg_cost": avg_cost,
+                "current_price": current_price,
+                "current_value": current_value,
+                "daily_change_pct": daily_change_pct,
+                "gain_pct": gain_pct,
+            }
+        )
+
+    for row in enriched:
+        row["allocation_pct"] = (row["current_value"] / total_value) if row["current_value"] is not None and total_value > 0 else None
+
+    enriched.sort(key=lambda r: r["allocation_pct"] or 0, reverse=True)
+    return {"holdings": enriched, "total_value": total_value}
+
+
+@app.get("/api/portfolio")
+def get_portfolio():
+    return jsonify(_enrich_holdings(portfolio_store.load_holdings()))
+
+
+@app.put("/api/portfolio/holdings/<symbol>")
+def upsert_portfolio_holding(symbol):
+    symbol = symbol.upper()
+    if symbol not in TRACKED_STOCKS:
+        return jsonify({"error": f"'{symbol}' no está en la lista de acciones soportadas"}), 400
+
+    body = request.get_json(silent=True) or {}
+    quantity = body.get("quantity")
+    avg_cost = body.get("avg_cost")
+    if not isinstance(quantity, (int, float)) or not isinstance(avg_cost, (int, float)):
+        return jsonify({"error": "quantity y avg_cost son requeridos y deben ser numéricos"}), 400
+
+    try:
+        holdings = portfolio_store.upsert_holding(symbol, quantity=float(quantity), avg_cost=float(avg_cost))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(_enrich_holdings(holdings))
+
+
+@app.delete("/api/portfolio/holdings/<symbol>")
+def delete_portfolio_holding(symbol):
+    holdings = portfolio_store.delete_holding(symbol.upper())
+    return jsonify(_enrich_holdings(holdings))
 
 
 DRIFT_MODES = {"risk_neutral", "market_expectation"}

@@ -3,11 +3,13 @@ import "./App.css";
 import PriceTargetPage from "./PriceTargetPage";
 import MomentumPage from "./MomentumPage";
 import EarningsPage from "./EarningsPage";
+import PortfolioPage from "./PortfolioPage";
 
 const TABS = [
   { id: "price-target", label: "Probabilidad de Price Target", Component: PriceTargetPage },
   { id: "momentum", label: "Momentum Post-Evento", Component: MomentumPage },
   { id: "earnings", label: "Reacción a Earnings", Component: EarningsPage },
+  { id: "portfolio", label: "Mi Portafolio", Component: PortfolioPage },
 ];
 
 export default function App() {

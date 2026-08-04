@@ -755,8 +755,25 @@
   color: var(--text-muted);
 }
 
+.technical-chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
 .technical-chart-svg {
-  cursor: pointer;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.technical-chart-zoom-selection {
+  fill: color-mix(in srgb, var(--series-1) 18%, transparent);
+  stroke: var(--series-1);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
 }
 
 .technical-chart-sma50-line {

@@ -46,7 +46,7 @@ def _history_start_date(symbol: str) -> str:
 
 
 def get_price_history(symbol: str) -> pd.DataFrame:
-    """Split/dividend-adjusted daily close + volume, most recent last. Cached per symbol.
+    """Split/dividend-adjusted daily open/close + volume, most recent last. Cached per symbol.
 
     Fetched from a fixed start date (see TRACKED_STOCKS / DEFAULT_HISTORY_SINCE),
     not a rolling "last N years" window — the window grows as time passes
@@ -59,12 +59,14 @@ def get_price_history(symbol: str) -> pd.DataFrame:
         history = yf.Ticker(symbol).history(start=start, interval="1d", auto_adjust=True)
         if history.empty:
             raise MarketDataError(f"No se recibió serie de precios para {symbol}")
-        df = history[["Close", "Volume"]].rename(columns={"Close": "adj_close", "Volume": "volume"})
+        df = history[["Open", "Close", "Volume"]].rename(
+            columns={"Open": "open", "Close": "adj_close", "Volume": "volume"}
+        )
         df.index = pd.to_datetime(df.index).tz_localize(None)
         # yfinance sometimes returns a placeholder row for the most recent
-        # session (volume present, close not yet finalized) — drop it rather
-        # than let a NaN close leak into prices, ratios, or JSON responses.
-        df = df.dropna(subset=["adj_close"])
+        # session (volume present, open/close not yet finalized) — drop it
+        # rather than let a NaN leak into prices, ratios, or JSON responses.
+        df = df.dropna(subset=["adj_close", "open"])
         return df
 
     return _cached(f"price_history:{symbol}", PRICE_HISTORY_TTL_SECONDS, _fetch)

@@ -203,6 +203,8 @@ def earnings_analysis():
                     "volume_ratio": r.volume_ratio,
                     "sector_reaction_day_return": r.sector_reaction_day_return,
                     "excess_reaction_day_return": r.excess_reaction_day_return,
+                    "next_open_price": r.next_open_price,
+                    "aftermarket_gap_pct": r.aftermarket_gap_pct,
                 }
                 for r in result.reactions
             ],

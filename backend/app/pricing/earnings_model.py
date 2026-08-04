@@ -57,6 +57,8 @@ class EarningsReaction:
     volume_ratio: Optional[float]  # reaction-day volume / trailing 60-day average
     sector_reaction_day_return: Optional[float]
     excess_reaction_day_return: Optional[float]  # stock's reaction minus the sector's, same day
+    next_open_price: Optional[float]  # reaction day's opening price
+    aftermarket_gap_pct: Optional[float]  # reaction day's open vs the close right before it — the overnight/after-hours (or pre-market, for BMO reports) move alone, before that session's own trading
 
 
 @dataclass
@@ -164,6 +166,7 @@ def analyze(
 
     history = market_data.get_price_history(symbol)
     prices = history["adj_close"]
+    opens = history["open"]
     volume = history["volume"]
     price_index = prices.index
     price_index_list = list(price_index)
@@ -190,6 +193,8 @@ def analyze(
                     volume_ratio=None,
                     sector_reaction_day_return=None,
                     excess_reaction_day_return=None,
+                    next_open_price=None,
+                    aftermarket_gap_pct=None,
                 )
             )
             continue
@@ -197,6 +202,8 @@ def analyze(
         pos = price_index_list.index(reaction_date)
         prev_close = float(prices.iloc[pos - 1]) if pos > 0 else None
         reaction_day_return = float(prices.iloc[pos] / prev_close - 1) if prev_close else None
+        next_open_price = float(opens.iloc[pos])
+        aftermarket_gap_pct = (next_open_price / prev_close - 1) if prev_close else None
 
         forward_returns = {}
         for label, horizon in FORWARD_HORIZONS_DAYS.items():
@@ -225,6 +232,8 @@ def analyze(
                 volume_ratio=_volume_ratio(volume, pos),
                 sector_reaction_day_return=sector_reaction,
                 excess_reaction_day_return=excess_reaction,
+                next_open_price=next_open_price,
+                aftermarket_gap_pct=aftermarket_gap_pct,
             )
         )
 

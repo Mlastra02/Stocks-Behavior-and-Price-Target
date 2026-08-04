@@ -26,8 +26,15 @@ def _build_dated_price_series(start, periods, base_price=100.0, seed=0):
     return pd.Series(np.exp(log_prices), index=dates)
 
 
-def _price_df(prices, base_volume=1_000_000.0):
-    return pd.DataFrame({"adj_close": prices, "volume": np.full(len(prices), base_volume)}, index=prices.index)
+def _price_df(prices, base_volume=1_000_000.0, opens=None):
+    return pd.DataFrame(
+        {
+            "open": opens if opens is not None else prices,
+            "adj_close": prices,
+            "volume": np.full(len(prices), base_volume),
+        },
+        index=prices.index,
+    )
 
 
 class ReactionDateTest(unittest.TestCase):
@@ -94,6 +101,27 @@ class AnalyzeTest(unittest.TestCase):
         self.assertAlmostEqual(reaction.forward_returns["2w"], expected_2w, places=9)
         self.assertAlmostEqual(reaction.forward_returns["1m"], expected_1m, places=9)
         self.assertAlmostEqual(reaction.forward_returns["3m"], expected_3m, places=9)
+
+    def test_aftermarket_gap_measures_open_vs_close_before_reaction(self):
+        prices = _build_dated_price_series(start="2023-06-01", periods=300)
+        # Opens track the prior close plus a fixed +2% overnight gap, so the
+        # reaction day's open is predictable regardless of that day's own close.
+        opens = prices.shift(1) * 1.02
+        opens.iloc[0] = prices.iloc[0]
+        records = [{"report_date": "2023-11-08", "report_hour": 16, "eps_actual": 1.1, "eps_estimate": 1.0, "surprise_pct": 0.10}]
+
+        with patch.object(
+            earnings_model.market_data, "get_price_history", return_value=_price_df(prices, opens=opens)
+        ), patch.object(earnings_model.market_data, "earnings_history", return_value=records):
+            result = earnings_model.analyze("TEST")
+
+        reaction = result.reactions[0]
+        pos = list(prices.index).index(pd.Timestamp(reaction.reaction_date))
+        prev_close = prices.iloc[pos - 1]
+
+        self.assertAlmostEqual(reaction.next_open_price, opens.iloc[pos], places=9)
+        self.assertAlmostEqual(reaction.aftermarket_gap_pct, opens.iloc[pos] / prev_close - 1, places=9)
+        self.assertAlmostEqual(reaction.aftermarket_gap_pct, 0.02, places=9)
 
     def test_beats_and_misses_counted_from_surprise_sign(self):
         prices = _build_dated_price_series(start="2023-06-01", periods=300)

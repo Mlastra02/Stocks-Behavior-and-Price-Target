@@ -58,6 +58,30 @@ function beatMissStats(reactions, wantBeat) {
   return { n: group.length, mean_reaction: mean(group), median_reaction: median(group) };
 }
 
+// For reports coming into the report on an up/down trend: did the market
+// gap up in the aftermarket (open vs the close right before it), and did
+// that day close positive too? Each side reports both a positive-rate
+// (with the raw fraction) and the average signed move, so "how often" and
+// "by how much" are both visible.
+function trendDirectionStats(reactions, wantUp) {
+  const group = reactions.filter((r) => r.trend_before_pct != null && (wantUp ? r.trend_before_pct > 0 : r.trend_before_pct < 0));
+
+  const gapValues = group.map((r) => r.aftermarket_gap_pct).filter((v) => v != null);
+  const dayValues = group.map((r) => r.reaction_day_return).filter((v) => v != null);
+
+  return {
+    n: group.length,
+    gapPositiveCount: gapValues.filter((v) => v > 0).length,
+    gapTotal: gapValues.length,
+    gapPositivePct: gapValues.length ? gapValues.filter((v) => v > 0).length / gapValues.length : null,
+    gapMean: gapValues.length ? mean(gapValues) : null,
+    dayPositiveCount: dayValues.filter((v) => v > 0).length,
+    dayTotal: dayValues.length,
+    dayPositivePct: dayValues.length ? dayValues.filter((v) => v > 0).length / dayValues.length : null,
+    dayMean: dayValues.length ? mean(dayValues) : null,
+  };
+}
+
 // Recomputes the same aggregate stats earnings_model.py used to return, but
 // on whatever subset the secondary filters have already narrowed down to —
 // so they stay in sync with the table/chart without another server request.
@@ -85,6 +109,8 @@ function computeStats(reactions) {
     correlation,
     beatStats: beatMissStats(reactions, true),
     missStats: beatMissStats(reactions, false),
+    trendUpStats: trendDirectionStats(reactions, true),
+    trendDownStats: trendDirectionStats(reactions, false),
   };
 }
 
@@ -169,6 +195,31 @@ function StatBlock({ label, stats }) {
             reacción promedio de {stats.n} reportes (mediana <SignedPct value={stats.median_reaction} />)
           </p>
         </>
+      )}
+    </div>
+  );
+}
+
+function TrendReactionBlock({ label, stats }) {
+  return (
+    <div className="tile">
+      <p className="tile-label">
+        <span className="tile-dot" style={{ background: "var(--series-1)" }} />
+        {label}
+      </p>
+      {stats.n === 0 ? (
+        <p className="field-hint">Sin datos</p>
+      ) : (
+        <div className="tile-details" style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+          <p style={{ margin: 0 }}>
+            Gap de apertura positivo: <strong>{pct(stats.gapPositivePct)}</strong> ({stats.gapPositiveCount}/{stats.gapTotal}),
+            promedio <SignedPct value={stats.gapMean} />
+          </p>
+          <p style={{ margin: 0 }}>
+            Día completo positivo: <strong>{pct(stats.dayPositivePct)}</strong> ({stats.dayPositiveCount}/{stats.dayTotal}),
+            promedio <SignedPct value={stats.dayMean} />
+          </p>
+        </div>
       )}
     </div>
   );
@@ -548,6 +599,20 @@ export default function EarningsPage() {
                     </div>
 
                     <p className="field-hint" style={{ marginBottom: "0.5rem" }}>
+                      Sobre los reportes de la tabla (ya filtrados, incluido el rango de tendencia elegido arriba):
+                      ¿subió en el gap de apertura (overnight/pre-market/after-hours) y también cerró en positivo ese
+                      día?
+                    </p>
+
+                    <div
+                      className="tiles momentum-tiles"
+                      style={{ gridTemplateColumns: "1fr 1fr", marginBottom: "1.25rem" }}
+                    >
+                      <TrendReactionBlock label="Venía al alza" stats={stats.trendUpStats} />
+                      <TrendReactionBlock label="Venía a la baja" stats={stats.trendDownStats} />
+                    </div>
+
+                    <p className="field-hint" style={{ marginBottom: "0.5rem" }}>
                       Clic en una fila para ver ese reporte en el gráfico · fondo verde/rojo = beat/miss · borde
                       izquierdo verde/rojo = venía subiendo/bajando antes del reporte.
                     </p>
@@ -562,6 +627,7 @@ export default function EarningsPage() {
                             <th>Sorpresa EPS</th>
                             <th>Tendencia previa ({TREND_WINDOW_LABELS[result.trend_window_days]})</th>
                             <th>Fecha reacción</th>
+                            <th>Apertura reacción</th>
                             <th>Día</th>
                             <th>Volumen</th>
                             <th>Exceso vs sector</th>
@@ -596,6 +662,15 @@ export default function EarningsPage() {
                                   <SignedPct value={r.trend_before_pct} />
                                 </td>
                                 <td>{r.reaction_date || "—"}</td>
+                                <td>
+                                  {r.next_open_price != null ? (
+                                    <>
+                                      ${r.next_open_price.toFixed(2)} <SignedPct value={r.aftermarket_gap_pct} />
+                                    </>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
                                 <td>
                                   <SignedPct value={r.reaction_day_return} />
                                 </td>

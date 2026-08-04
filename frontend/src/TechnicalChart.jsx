@@ -200,7 +200,7 @@ export default function TechnicalChart({ chart, earningsDates }) {
         <path d={sma50Path} className="technical-chart-sma50-line" />
         <path d={pricePath} className="price-chart-line" />
 
-        {selectedIndex != null && !showingDrag && (
+        {selected && !showingDrag && (
           <>
             <line
               x1={xAt(selectedIndex)}

@@ -787,7 +787,7 @@ export default function EarningsPage() {
                         {(() => {
                           const selected = filteredReactions.find((r) => r.report_date === selectedReport);
                           return selected ? (
-                            <PriceWindowChart priceWindow={selected.price_window} reactionDate={selected.reaction_date} />
+                            <PriceWindowChart priceWindow={selected.price_window} reportDate={selected.report_date} />
                           ) : null;
                         })()}
                       </div>

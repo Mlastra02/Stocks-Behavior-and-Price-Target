@@ -13,7 +13,7 @@ function formatPrice(value) {
   return `$${value.toFixed(2)}`;
 }
 
-export default function PriceWindowChart({ priceWindow, reactionDate }) {
+export default function PriceWindowChart({ priceWindow, reportDate }) {
   const [hoverIndex, setHoverIndex] = useState(null);
 
   const plot = useMemo(() => {
@@ -34,18 +34,22 @@ export default function PriceWindowChart({ priceWindow, reactionDate }) {
 
     const linePath = priceWindow.map((p, i) => `${i === 0 ? "M" : "L"}${xAt(i)},${yAt(p.price)}`).join(" ");
 
-    const reactionIndex = priceWindow.findIndex((p) => p.date === reactionDate);
+    // The marker sits on the actual report date, not the reaction date —
+    // for an after-close report those differ by a day, and anchoring on the
+    // report date is what makes the overnight gap into the reaction visible
+    // as a jump starting the day *after* the line, instead of hiding it.
+    const reportIndex = priceWindow.findIndex((p) => p.date === reportDate);
 
     const yTicks = [yMin + pad, (yMin + yMax) / 2, yMax - pad];
 
-    return { xAt, yAt, linePath, reactionIndex, yTicks, innerWidth, innerHeight };
-  }, [priceWindow, reactionDate]);
+    return { xAt, yAt, linePath, reportIndex, yTicks, innerWidth, innerHeight };
+  }, [priceWindow, reportDate]);
 
   if (!plot) {
     return <p className="field-hint">No hay suficientes datos de precio para graficar esta ventana.</p>;
   }
 
-  const { xAt, yAt, linePath, reactionIndex, yTicks, innerHeight } = plot;
+  const { xAt, yAt, linePath, reportIndex, yTicks, innerHeight } = plot;
 
   function handleMove(e) {
     const svg = e.currentTarget;
@@ -90,16 +94,16 @@ export default function PriceWindowChart({ priceWindow, reactionDate }) {
           {formatDate(priceWindow[priceWindow.length - 1].date)}
         </text>
 
-        {reactionIndex >= 0 && (
+        {reportIndex >= 0 && (
           <>
             <line
-              x1={xAt(reactionIndex)}
-              x2={xAt(reactionIndex)}
+              x1={xAt(reportIndex)}
+              x2={xAt(reportIndex)}
               y1={MARGIN.top}
               y2={MARGIN.top + innerHeight}
               className="price-chart-reaction-line"
             />
-            <text x={xAt(reactionIndex)} y={MARGIN.top - 4} className="price-chart-reaction-label" textAnchor="middle">
+            <text x={xAt(reportIndex)} y={MARGIN.top - 4} className="price-chart-reaction-label" textAnchor="middle">
               Earnings
             </text>
           </>
@@ -131,7 +135,7 @@ export default function PriceWindowChart({ priceWindow, reactionDate }) {
         {hovered ? (
           <>
             <strong>{formatPrice(hovered.price)}</strong> · {formatDate(hovered.date)}
-            {hovered.date === reactionDate && <span className="price-chart-reaction-tag"> · día de earnings</span>}
+            {hovered.date === reportDate && <span className="price-chart-reaction-tag"> · día del reporte</span>}
           </>
         ) : (
           <span className="field-hint">Pasa el mouse sobre el gráfico para ver el detalle.</span>

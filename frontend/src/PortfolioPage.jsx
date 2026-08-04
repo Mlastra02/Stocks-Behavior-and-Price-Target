@@ -644,10 +644,15 @@ export default function PortfolioPage() {
               </p>
               {technical.cross_signal.sma50 != null && (
                 <p className="tile-value">
-                  SMA50 {formatMoney(technical.cross_signal.sma50)} vs SMA200 {formatMoney(technical.cross_signal.sma200)}
+                  SMA50 {formatMoney(technical.cross_signal.sma50)} <BandTag band={technical.sma_medium.band} />
+                  {" vs "}
+                  SMA200 {formatMoney(technical.cross_signal.sma200)} <BandTag band={technical.sma_long.band} />
                 </p>
               )}
-              <p className="field-hint">{technical.cross_signal.explanation}</p>
+              <p className="field-hint" style={{ marginTop: technical.cross_signal.sma50 != null ? "0.4rem" : 0 }}>
+                EMA(20) {formatMoney(technical.ema_short.value)} <BandTag band={technical.ema_short.band} />
+              </p>
+              <p className="field-hint" style={{ marginTop: "0.4rem" }}>{technical.cross_signal.explanation}</p>
             </div>
 
             <p className="field-hint" style={{ marginBottom: "0.5rem" }}>

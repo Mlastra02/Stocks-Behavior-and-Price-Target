@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { API_BASE, pct } from "./api";
 import TechnicalChart from "./TechnicalChart";
+import CompareChart from "./CompareChart";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
@@ -64,11 +65,31 @@ export default function PortfolioPage() {
   const [editQuantity, setEditQuantity] = useState("");
   const [editAvgCost, setEditAvgCost] = useState("");
 
+  const [overview, setOverview] = useState([]);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+
+  const [compareSymbols, setCompareSymbols] = useState([]);
+  const [compareMonths, setCompareMonths] = useState(12);
+  const [compareData, setCompareData] = useState({});
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareError, setCompareError] = useState(null);
+  const [comparePicked, setComparePicked] = useState(false);
+
   useEffect(() => {
     fetch(`${API_BASE}/api/stocks`)
       .then((res) => res.json())
       .then(setStocks)
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/stocks/overview`)
+      .then((res) => res.json())
+      .then((data) => {
+        setOverview(data);
+        setOverviewLoading(false);
+      })
+      .catch(() => setOverviewLoading(false));
   }, []);
 
   async function fetchPortfolio() {
@@ -102,6 +123,36 @@ export default function PortfolioPage() {
     }
   }
 
+  async function fetchCompareData(symbols, months) {
+    if (symbols.length === 0) {
+      setCompareData({});
+      return;
+    }
+    setCompareLoading(true);
+    setCompareError(null);
+    try {
+      // allSettled, not all — one symbol failing (e.g. a transient data
+      // hiccup) shouldn't blank out the others that loaded fine.
+      const settled = await Promise.allSettled(
+        symbols.map(async (sym) => {
+          const params = new URLSearchParams({ symbol: sym, chart_months: String(months) });
+          const res = await fetch(`${API_BASE}/api/technical-analysis?${params}`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || sym);
+          return [sym, data];
+        })
+      );
+      const fulfilled = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
+      setCompareData(Object.fromEntries(fulfilled));
+      const failed = settled.filter((r) => r.status === "rejected");
+      if (failed.length > 0) {
+        setCompareError(`No se pudo cargar: ${failed.map((r) => r.reason.message).join(", ")}`);
+      }
+    } finally {
+      setCompareLoading(false);
+    }
+  }
+
   useEffect(() => {
     fetchPortfolio();
   }, []);
@@ -123,17 +174,41 @@ export default function PortfolioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSymbol]);
 
+  // Default the comparison to whatever's in the portfolio (or the first 3
+  // tracked stocks if it's still empty) — only once, so it doesn't stomp on
+  // a selection the user already made.
+  useEffect(() => {
+    if (comparePicked || portfolioLoading) return;
+    if (portfolio && portfolio.holdings.length > 0) {
+      setCompareSymbols(portfolio.holdings.map((h) => h.symbol));
+      setComparePicked(true);
+    } else if (stocks.length > 0) {
+      setCompareSymbols(stocks.slice(0, 3).map((s) => s.symbol));
+      setComparePicked(true);
+    }
+  }, [portfolio, stocks, portfolioLoading, comparePicked]);
+
+  useEffect(() => {
+    fetchCompareData(compareSymbols, compareMonths);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareSymbols, compareMonths]);
+
+  function toggleCompareSymbol(symbol) {
+    setCompareSymbols((prev) => (prev.includes(symbol) ? prev.filter((s) => s !== symbol) : [...prev, symbol]));
+  }
+
   // Not tick-by-tick real time — yfinance's free data has its own delay —
   // but the page refreshes itself periodically instead of only on load.
   useEffect(() => {
     const id = setInterval(() => {
       fetchPortfolio();
       if (selectedSymbol) fetchTechnical(selectedSymbol);
+      fetchCompareData(compareSymbols, compareMonths);
       setLastUpdated(new Date());
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSymbol]);
+  }, [selectedSymbol, compareSymbols, compareMonths]);
 
   useEffect(() => {
     if (portfolio) setLastUpdated(new Date());
@@ -142,6 +217,7 @@ export default function PortfolioPage() {
   function manualRefresh() {
     fetchPortfolio();
     if (selectedSymbol) fetchTechnical(selectedSymbol);
+    fetchCompareData(compareSymbols, compareMonths);
   }
 
   async function submitNewHolding(e) {
@@ -204,7 +280,42 @@ export default function PortfolioPage() {
   const availableToAdd = stocks.filter((s) => !portfolio?.holdings.some((h) => h.symbol === s.symbol));
 
   return (
-    <div className="layout momentum-layout">
+    <div className="layout">
+      <aside className="sidebar sidebar-left card">
+        <h2 className="sidebar-title">Precio objetivo de analistas</h2>
+        <p className="sidebar-subtitle">Acciones en las que está entrenado el modelo</p>
+
+        {overviewLoading && <p className="field-hint">Cargando…</p>}
+
+        <ul className="watchlist">
+          {overview.map((s) => (
+            <li key={s.symbol} className="watchlist-row">
+              <div className="watchlist-symbol">
+                <span className="watchlist-ticker">{s.symbol}</span>
+                <span className="watchlist-name">{s.name}</span>
+              </div>
+              {s.current_price != null && s.analyst_target_price != null ? (
+                <div className="watchlist-prices">
+                  <span>${s.current_price.toFixed(2)}</span>
+                  <span className="watchlist-arrow">→</span>
+                  <span>${s.analyst_target_price.toFixed(2)}</span>
+                  <span
+                    className={
+                      "watchlist-upside " + (s.upside_pct >= 0 ? "watchlist-upside-positive" : "watchlist-upside-negative")
+                    }
+                  >
+                    {s.upside_pct >= 0 ? "+" : ""}
+                    {(s.upside_pct * 100).toFixed(1)}%
+                  </span>
+                </div>
+              ) : (
+                <span className="field-hint">Sin cobertura de analistas</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </aside>
+
       <div className="app">
         <header className="app-header">
           <p className="eyebrow">Mi Portafolio</p>
@@ -401,15 +512,115 @@ export default function PortfolioPage() {
                 <div className="tile" style={{ marginTop: "1rem" }}>
                   <p className="tile-label">
                     <span className="tile-dot" style={{ background: "var(--series-1)" }} />
-                    Volumen — {technical.volume_signal.quadrant ? VOLUME_LABELS[technical.volume_signal.quadrant] : "Sin señal clara"}
+                    Volumen relativo (vs. promedio 60d) — {technical.volume_signal.quadrant ? VOLUME_LABELS[technical.volume_signal.quadrant] : "Sin señal clara"}
                   </p>
-                  {technical.volume_signal.current_volume != null && (
-                    <p className="tile-value">{technical.volume_signal.current_volume.toLocaleString("es")}</p>
-                  )}
+                  <p className="tile-value">
+                    {technical.volume_signal.volume_ratio != null ? `${technical.volume_signal.volume_ratio.toFixed(2)}x` : "—"}
+                  </p>
+                  <p className="field-hint">
+                    {technical.volume_signal.current_volume != null &&
+                      `${technical.volume_signal.current_volume.toLocaleString("es")} acciones hoy. `}
+                    Es el volumen relativo (RVOL) — cuántas veces el promedio de los últimos 60 días hábiles, la
+                    métrica estándar que usa el mercado para saber si un movimiento viene con actividad inusual.
+                  </p>
                   <p className="field-hint">{technical.volume_signal.explanation}</p>
                 </div>
               </>
             )
+          )}
+        </div>
+
+        <div className="card earnings-secondary-filters">
+          <div className="secondary-filters-header">
+            <h2 className="sidebar-title">Comparar acciones</h2>
+          </div>
+          <p className="field-hint" style={{ marginBottom: "0.75rem" }}>
+            El gráfico indexa el precio de cada acción a 100 en la fecha más antigua que tengan en común, así se
+            puede comparar el rendimiento relativo aunque los precios de partida sean muy distintos (ej. MELI vs
+            LOAR).
+          </p>
+
+          <div className="toggle-group" style={{ marginBottom: "0.75rem" }}>
+            {stocks.map((s) => (
+              <button
+                key={s.symbol}
+                type="button"
+                className={"toggle-button" + (compareSymbols.includes(s.symbol) ? " toggle-button-active" : "")}
+                onClick={() => toggleCompareSymbol(s.symbol)}
+              >
+                {s.symbol}
+              </button>
+            ))}
+          </div>
+
+          <div className="field" style={{ maxWidth: "200px", marginBottom: "1rem" }}>
+            <label htmlFor="compare_months">Ventana</label>
+            <select id="compare_months" value={compareMonths} onChange={(e) => setCompareMonths(Number(e.target.value))}>
+              <option value={3}>3 meses</option>
+              <option value={6}>6 meses</option>
+              <option value={12}>12 meses</option>
+              <option value={24}>24 meses</option>
+            </select>
+          </div>
+
+          {compareError && <p className="error">{compareError}</p>}
+
+          {compareSymbols.length === 0 ? (
+            <p className="field-hint">Elegí al menos una acción para comparar.</p>
+          ) : compareLoading && Object.keys(compareData).length === 0 ? (
+            <p className="field-hint">Cargando…</p>
+          ) : (
+            <>
+              <div className="earnings-table-wrap card" style={{ marginBottom: "1rem" }}>
+                <table className="earnings-table">
+                  <thead>
+                    <tr>
+                      <th>Acción</th>
+                      <th>Precio actual</th>
+                      <th>Price target</th>
+                      <th>Upside</th>
+                      <th>RSI</th>
+                      <th>Cambio hoy</th>
+                      <th>Ganancia (portafolio)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {compareSymbols
+                      .filter((sym) => compareData[sym])
+                      .map((sym) => {
+                        const d = compareData[sym];
+                        const holding = portfolio?.holdings.find((h) => h.symbol === sym);
+                        const overviewRow = overview.find((s) => s.symbol === sym);
+                        return (
+                          <tr key={sym}>
+                            <td>{sym}</td>
+                            <td>{formatMoney(d.current_price)}</td>
+                            <td>{formatMoney(d.price_target)}</td>
+                            <td>
+                              <SignedPct value={d.upside_pct} />
+                            </td>
+                            <td>
+                              {d.rsi.value != null ? d.rsi.value.toFixed(0) : "—"} <BandTag band={d.rsi.band} />
+                            </td>
+                            <td>
+                              <SignedPct value={overviewRow?.daily_change_pct} />
+                            </td>
+                            <td>
+                              {holding ? <SignedPct value={holding.gain_pct} /> : <span className="field-hint">No tenés</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+
+              <CompareChart
+                series={compareSymbols
+                  .filter((sym) => compareData[sym])
+                  .map((sym) => ({ symbol: sym, chart: compareData[sym].chart }))}
+              />
+            </>
           )}
         </div>
 

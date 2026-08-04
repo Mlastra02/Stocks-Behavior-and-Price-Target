@@ -146,24 +146,21 @@ def _beat_miss_stats(reactions: List[EarningsReaction], want_beat: bool) -> Beat
 def analyze(
     symbol: str,
     require_uptrend_before: Optional[bool] = None,
-    require_beat: Optional[bool] = None,
-    since_year: Optional[int] = None,
     trend_window_days: int = DEFAULT_TREND_WINDOW_DAYS,
-    trend_min_pct: Optional[float] = None,
-    trend_max_pct: Optional[float] = None,
-    require_sector_outperformance: Optional[bool] = None,
 ) -> EarningsAnalysisResult:
+    """The "initial filter" — symbol, prior-trend direction, and its window.
+
+    Everything else (beat/miss, since-year, an arbitrary trend %% range,
+    sector over/under-performance) used to also filter server-side here, but
+    the frontend now applies those interactively on the already-fetched
+    reactions instead of round-tripping to the server for every tweak — this
+    only needs to return the full reaction set for the initial filter, with
+    all the fields those client-side filters/stats need already computed.
+    """
     if trend_window_days not in VALID_TREND_WINDOW_DAYS:
         raise ValueError(f"trend_window_days debe ser uno de: {sorted(VALID_TREND_WINDOW_DAYS)}")
 
     records = market_data.earnings_history(symbol)
-
-    if since_year is not None:
-        records = [r for r in records if pd.Timestamp(r["report_date"]).year >= since_year]
-    if require_beat is not None:
-        records = [
-            r for r in records if r["surprise_pct"] is not None and (r["surprise_pct"] > 0) == require_beat
-        ]
 
     history = market_data.get_price_history(symbol)
     prices = history["adj_close"]
@@ -236,19 +233,6 @@ def analyze(
             r
             for r in reactions
             if r.trend_before_pct is not None and (r.trend_before_pct > 0) == require_uptrend_before
-        ]
-
-    if trend_min_pct is not None:
-        reactions = [r for r in reactions if r.trend_before_pct is not None and r.trend_before_pct >= trend_min_pct]
-    if trend_max_pct is not None:
-        reactions = [r for r in reactions if r.trend_before_pct is not None and r.trend_before_pct <= trend_max_pct]
-
-    if require_sector_outperformance is not None:
-        reactions = [
-            r
-            for r in reactions
-            if r.excess_reaction_day_return is not None
-            and (r.excess_reaction_day_return > 0) == require_sector_outperformance
         ]
 
     valid_reaction_days = [r.reaction_day_return for r in reactions if r.reaction_day_return is not None]

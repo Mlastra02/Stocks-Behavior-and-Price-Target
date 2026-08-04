@@ -140,9 +140,11 @@ def momentum_analysis():
 def earnings_analysis():
     """Historical earnings-day reactions: EPS surprise + how the stock actually moved after.
 
-    Optional filters: require_uptrend_before / require_beat ("true"/"false"),
-    since_year (int) — each narrows which reports count, and all stats are
-    recomputed on the resulting subset.
+    This is only the INITIAL filter — symbol, require_uptrend_before
+    ("true"/"false"), and trend_window_days. Everything else (beat/miss,
+    since-year, an arbitrary trend %% range, sector over/under-performance)
+    is applied client-side by the frontend on the already-fetched reactions,
+    so it can refine instantly without another round trip.
     """
     symbol = request.args.get("symbol", "").upper()
 
@@ -151,28 +153,18 @@ def earnings_analysis():
 
     try:
         require_uptrend_before = _parse_optional_bool(request.args.get("require_uptrend_before"))
-        require_beat = _parse_optional_bool(request.args.get("require_beat"))
-        require_sector_outperformance = _parse_optional_bool(request.args.get("require_sector_outperformance"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    since_year = request.args.get("since_year", type=int)
     trend_window_days = request.args.get(
         "trend_window_days", earnings_model.DEFAULT_TREND_WINDOW_DAYS, type=int
     )
-    trend_min_pct = request.args.get("trend_min_pct", type=float)
-    trend_max_pct = request.args.get("trend_max_pct", type=float)
 
     try:
         result = earnings_model.analyze(
             symbol,
             require_uptrend_before=require_uptrend_before,
-            require_beat=require_beat,
-            since_year=since_year,
             trend_window_days=trend_window_days,
-            trend_min_pct=trend_min_pct,
-            trend_max_pct=trend_max_pct,
-            require_sector_outperformance=require_sector_outperformance,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

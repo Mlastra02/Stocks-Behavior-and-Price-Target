@@ -486,6 +486,87 @@
   border-bottom: none;
 }
 
+.earnings-row-clickable {
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.earnings-row-clickable:hover {
+  background-color: var(--page-plane);
+}
+
+.earnings-row-selected {
+  background-color: color-mix(in srgb, var(--series-1) 12%, transparent);
+}
+
+.earnings-secondary-filters {
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.secondary-filters-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.secondary-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.1rem;
+}
+
+@media (max-width: 620px) {
+  .secondary-filters-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--series-1);
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.toggle-group {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.toggle-button {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--page-plane);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.toggle-button:hover {
+  color: var(--text-primary);
+}
+
+.toggle-button-active {
+  background: var(--series-1);
+  border-color: var(--series-1);
+  color: #ffffff;
+}
+
 .price-chart-card {
   margin-top: 1.5rem;
   padding: 1.25rem;

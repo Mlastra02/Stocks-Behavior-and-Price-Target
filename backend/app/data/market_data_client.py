@@ -61,6 +61,10 @@ def get_price_history(symbol: str) -> pd.DataFrame:
             raise MarketDataError(f"No se recibió serie de precios para {symbol}")
         df = history[["Close", "Volume"]].rename(columns={"Close": "adj_close", "Volume": "volume"})
         df.index = pd.to_datetime(df.index).tz_localize(None)
+        # yfinance sometimes returns a placeholder row for the most recent
+        # session (volume present, close not yet finalized) — drop it rather
+        # than let a NaN close leak into prices, ratios, or JSON responses.
+        df = df.dropna(subset=["adj_close"])
         return df
 
     return _cached(f"price_history:{symbol}", PRICE_HISTORY_TTL_SECONDS, _fetch)

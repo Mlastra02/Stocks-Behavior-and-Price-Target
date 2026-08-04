@@ -179,6 +179,22 @@ class AnalyzeTest(unittest.TestCase):
         self.assertIsNotNone(result.sma_long.value)
         self.assertIn(result.sma_long.band, ("alto", "moderado", "bajo"))
 
+    def test_chart_days_overrides_chart_months_for_a_shorter_window(self):
+        n = 600
+        rng = np.random.default_rng(11)
+        returns = rng.normal(0.0003, 0.015, n)
+        dates = _dates(n, start="2023-01-01")
+        prices = pd.Series(100.0 * np.cumprod(1 + returns), index=dates)
+        volume = pd.Series(np.full(n, 2_000_000.0), index=dates)
+
+        result = self._analyze_with(prices, volume, records=[], chart_months=24, chart_days=7)
+
+        self.assertGreater(len(result.chart), 0)
+        self.assertLessEqual(len(result.chart), 6)  # 7 calendar days is at most 5-6 trading days
+        self.assertEqual(result.chart[-1].date, dates[-1].strftime("%Y-%m-%d"))
+        # The rest of the analysis (not the chart window) still reflects the full history either way.
+        self.assertIsNotNone(result.sma_long.value)
+
     def test_earnings_dates_within_chart_window_are_included_and_outside_ones_are_not(self):
         n = 600
         rng = np.random.default_rng(9)

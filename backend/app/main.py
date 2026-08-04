@@ -233,9 +233,10 @@ def technical_analysis():
         return jsonify({"error": f"'{symbol}' no está en la lista de acciones soportadas"}), 400
 
     chart_months = request.args.get("chart_months", 24, type=int)
+    chart_days = request.args.get("chart_days", type=int)
 
     try:
-        result = technical_indicators.analyze(symbol, chart_months=chart_months)
+        result = technical_indicators.analyze(symbol, chart_months=chart_months, chart_days=chart_days)
     except market_data.MarketDataError as exc:
         return jsonify({"error": str(exc)}), 502
 

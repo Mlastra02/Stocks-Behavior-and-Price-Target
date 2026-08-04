@@ -278,7 +278,11 @@ def _volume_signal(prices: pd.Series, volume: pd.Series) -> VolumeSignal:
     )
 
 
-def analyze(symbol: str, chart_months: int = 24) -> TechnicalAnalysisResult:
+def analyze(symbol: str, chart_months: int = 24, chart_days: Optional[int] = None) -> TechnicalAnalysisResult:
+    """chart_days, when given, overrides chart_months for the chart window
+    only (RSI/EMA/SMA/cross/volume always use the full price history) —
+    lets the caller ask for a window shorter than a month (e.g. 1 week),
+    which a whole-number month count can't express."""
     history = market_data.get_price_history(symbol)
     prices = history["adj_close"]
     volume = history["volume"]
@@ -304,7 +308,11 @@ def analyze(symbol: str, chart_months: int = 24) -> TechnicalAnalysisResult:
 
     volume_signal = _volume_signal(prices, volume)
 
-    chart_start = prices.index[-1] - pd.DateOffset(months=chart_months)
+    chart_start = (
+        prices.index[-1] - pd.Timedelta(days=chart_days)
+        if chart_days is not None
+        else prices.index[-1] - pd.DateOffset(months=chart_months)
+    )
     chart_mask = prices.index >= chart_start
     chart = [
         ChartPoint(

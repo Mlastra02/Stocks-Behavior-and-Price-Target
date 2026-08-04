@@ -5,6 +5,16 @@ import CompareChart from "./CompareChart";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
+const COMPARE_WINDOWS = [
+  { label: "1 semana", days: 7 },
+  { label: "1 mes", days: 30 },
+  { label: "2 meses", days: 60 },
+  { label: "3 meses", days: 90 },
+  { label: "6 meses", days: 180 },
+  { label: "12 meses", days: 365 },
+  { label: "24 meses", days: 730 },
+];
+
 const CROSS_LABELS = {
   golden_recent: "Golden cross reciente",
   death_recent: "Death cross reciente",
@@ -69,7 +79,7 @@ export default function PortfolioPage() {
   const [overviewLoading, setOverviewLoading] = useState(true);
 
   const [compareSymbols, setCompareSymbols] = useState([]);
-  const [compareMonths, setCompareMonths] = useState(12);
+  const [compareWindowDays, setCompareWindowDays] = useState(365);
   const [compareData, setCompareData] = useState({});
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareError, setCompareError] = useState(null);
@@ -123,7 +133,7 @@ export default function PortfolioPage() {
     }
   }
 
-  async function fetchCompareData(symbols, months) {
+  async function fetchCompareData(symbols, days) {
     if (symbols.length === 0) {
       setCompareData({});
       return;
@@ -135,7 +145,7 @@ export default function PortfolioPage() {
       // hiccup) shouldn't blank out the others that loaded fine.
       const settled = await Promise.allSettled(
         symbols.map(async (sym) => {
-          const params = new URLSearchParams({ symbol: sym, chart_months: String(months) });
+          const params = new URLSearchParams({ symbol: sym, chart_days: String(days) });
           const res = await fetch(`${API_BASE}/api/technical-analysis?${params}`);
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || sym);
@@ -189,9 +199,9 @@ export default function PortfolioPage() {
   }, [portfolio, stocks, portfolioLoading, comparePicked]);
 
   useEffect(() => {
-    fetchCompareData(compareSymbols, compareMonths);
+    fetchCompareData(compareSymbols, compareWindowDays);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compareSymbols, compareMonths]);
+  }, [compareSymbols, compareWindowDays]);
 
   function toggleCompareSymbol(symbol) {
     setCompareSymbols((prev) => (prev.includes(symbol) ? prev.filter((s) => s !== symbol) : [...prev, symbol]));
@@ -203,12 +213,12 @@ export default function PortfolioPage() {
     const id = setInterval(() => {
       fetchPortfolio();
       if (selectedSymbol) fetchTechnical(selectedSymbol);
-      fetchCompareData(compareSymbols, compareMonths);
+      fetchCompareData(compareSymbols, compareWindowDays);
       setLastUpdated(new Date());
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSymbol, compareSymbols, compareMonths]);
+  }, [selectedSymbol, compareSymbols, compareWindowDays]);
 
   useEffect(() => {
     if (portfolio) setLastUpdated(new Date());
@@ -217,7 +227,7 @@ export default function PortfolioPage() {
   function manualRefresh() {
     fetchPortfolio();
     if (selectedSymbol) fetchTechnical(selectedSymbol);
-    fetchCompareData(compareSymbols, compareMonths);
+    fetchCompareData(compareSymbols, compareWindowDays);
   }
 
   async function submitNewHolding(e) {
@@ -562,12 +572,13 @@ export default function PortfolioPage() {
           </div>
 
           <div className="field" style={{ maxWidth: "200px", marginBottom: "1rem" }}>
-            <label htmlFor="compare_months">Ventana</label>
-            <select id="compare_months" value={compareMonths} onChange={(e) => setCompareMonths(Number(e.target.value))}>
-              <option value={3}>3 meses</option>
-              <option value={6}>6 meses</option>
-              <option value={12}>12 meses</option>
-              <option value={24}>24 meses</option>
+            <label htmlFor="compare_window">Ventana</label>
+            <select id="compare_window" value={compareWindowDays} onChange={(e) => setCompareWindowDays(Number(e.target.value))}>
+              {COMPARE_WINDOWS.map((w) => (
+                <option key={w.days} value={w.days}>
+                  {w.label}
+                </option>
+              ))}
             </select>
           </div>
 

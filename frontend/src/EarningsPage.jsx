@@ -766,6 +766,47 @@ export default function EarningsPage() {
                       </table>
                     </div>
 
+                    <div className="card earnings-current-snapshot">
+                      <h2 className="sidebar-title" style={{ marginBottom: "0.25rem" }}>
+                        Cómo viene {result.symbol} ahora mismo
+                      </h2>
+                      <p className="field-hint" style={{ marginBottom: "0.75rem" }}>
+                        Al {result.current_snapshot.as_of_date}, calculado igual que la tabla (misma ventana de
+                        tendencia) pero sin reporte todavía — no hay forma de saber cómo va a reaccionar el precio
+                        hasta que el reporte ocurra. Es solo para comparar el punto de partida contra los reportes
+                        históricos de arriba, no forma parte de la tabla ni de las estadísticas.
+                      </p>
+                      <div className="tiles momentum-tiles">
+                        <div className="tile">
+                          <p className="tile-label">
+                            <span className="tile-dot" style={{ background: "var(--series-1)" }} />
+                            Precio actual
+                          </p>
+                          <p className="tile-value">${result.current_snapshot.current_price.toFixed(2)}</p>
+                        </div>
+                        <div className="tile">
+                          <p className="tile-label">
+                            <span className="tile-dot" style={{ background: "var(--series-1)" }} />
+                            Tendencia ({TREND_WINDOW_LABELS[result.trend_window_days]})
+                          </p>
+                          <p className="tile-value">
+                            <SignedPct value={result.current_snapshot.trend_pct} />
+                          </p>
+                        </div>
+                        <div className="tile">
+                          <p className="tile-label">
+                            <span className="tile-dot" style={{ background: "var(--series-1)" }} />
+                            Volumen
+                          </p>
+                          <p className="tile-value">
+                            {result.current_snapshot.volume_ratio != null
+                              ? `${result.current_snapshot.volume_ratio.toFixed(1)}x`
+                              : "—"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
                     {selectedReport && (
                       <div className="card price-chart-card">
                         <div className="price-chart-header">

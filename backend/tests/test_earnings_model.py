@@ -304,5 +304,29 @@ class SectorComparisonTest(unittest.TestCase):
         )
 
 
+class CurrentSnapshotTest(unittest.TestCase):
+    def test_snapshot_reflects_latest_price_and_trailing_trend(self):
+        n = 300
+        rng = np.random.default_rng(3)
+        returns = rng.normal(0, 0.0005, n)
+        returns[-20:] = 0.01  # a clean rally into the most recent close
+        dates = pd.bdate_range(start="2023-06-01", periods=n)
+        log_prices = np.log(100.0) + np.cumsum(returns)
+        prices = pd.Series(np.exp(log_prices), index=dates)
+        records = [{"report_date": "2023-11-08", "report_hour": 7, "eps_actual": 1.0, "eps_estimate": 1.0, "surprise_pct": 0.0}]
+
+        with patch.object(
+            earnings_model.market_data, "get_price_history", return_value=_price_df(prices)
+        ), patch.object(earnings_model.market_data, "earnings_history", return_value=records):
+            result = earnings_model.analyze("TEST", trend_window_days=20)
+
+        snapshot = result.current_snapshot
+        self.assertEqual(snapshot.as_of_date, dates[-1].strftime("%Y-%m-%d"))
+        self.assertAlmostEqual(snapshot.current_price, float(prices.iloc[-1]), places=9)
+        expected_trend = float(prices.iloc[-1] / prices.iloc[-1 - 20] - 1)
+        self.assertAlmostEqual(snapshot.trend_pct, expected_trend, places=9)
+        self.assertGreater(snapshot.trend_pct, 0.05)
+
+
 if __name__ == "__main__":
     unittest.main()

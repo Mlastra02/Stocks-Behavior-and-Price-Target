@@ -69,6 +69,19 @@ class BeatMissStats:
 
 
 @dataclass
+class CurrentSnapshot:
+    """Where the stock actually stands right now, computed the same way as
+    the historical rows (same trend_window_days) but with no report to react
+    to yet — for sizing up the current setup against what happened after
+    similar setups historically, not for predicting what comes next."""
+
+    as_of_date: str
+    current_price: float
+    trend_pct: Optional[float]
+    volume_ratio: Optional[float]
+
+
+@dataclass
 class EarningsAnalysisResult:
     symbol: str
     reactions: List[EarningsReaction]
@@ -78,6 +91,7 @@ class EarningsAnalysisResult:
     surprise_reaction_correlation: Optional[float]
     beat_stats: BeatMissStats
     miss_stats: BeatMissStats
+    current_snapshot: CurrentSnapshot
 
 
 def _reaction_date(report_date: str, report_hour: int, price_index: pd.DatetimeIndex) -> Optional[pd.Timestamp]:
@@ -261,6 +275,16 @@ def analyze(
         if surprises.std() > 0 and moves.std() > 0:
             correlation = float(np.corrcoef(surprises, moves)[0, 1])
 
+    last_pos = len(price_index_list) - 1
+    current_snapshot = CurrentSnapshot(
+        as_of_date=price_index_list[-1].strftime("%Y-%m-%d"),
+        current_price=float(prices.iloc[-1]),
+        # _trend_before anchors on the close right *before* pos — pos=last_pos+1
+        # makes that anchor the latest available close, i.e. "as of right now".
+        trend_pct=_trend_before(prices, last_pos + 1, trend_window_days),
+        volume_ratio=_volume_ratio(volume, last_pos),
+    )
+
     return EarningsAnalysisResult(
         symbol=symbol,
         reactions=reactions,
@@ -270,4 +294,5 @@ def analyze(
         surprise_reaction_correlation=correlation,
         beat_stats=_beat_miss_stats(reactions, want_beat=True),
         miss_stats=_beat_miss_stats(reactions, want_beat=False),
+        current_snapshot=current_snapshot,
     )

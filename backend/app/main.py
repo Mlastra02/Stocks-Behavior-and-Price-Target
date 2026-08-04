@@ -189,6 +189,12 @@ def earnings_analysis():
                 "mean_reaction": result.miss_stats.mean_reaction,
                 "median_reaction": result.miss_stats.median_reaction,
             },
+            "current_snapshot": {
+                "as_of_date": result.current_snapshot.as_of_date,
+                "current_price": result.current_snapshot.current_price,
+                "trend_pct": result.current_snapshot.trend_pct,
+                "volume_ratio": result.current_snapshot.volume_ratio,
+            },
             "reactions": [
                 {
                     "report_date": r.report_date,

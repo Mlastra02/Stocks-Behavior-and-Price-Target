@@ -79,6 +79,8 @@ class CurrentSnapshot:
     current_price: float
     trend_pct: Optional[float]
     volume_ratio: Optional[float]
+    sector_trend_pct: Optional[float]
+    excess_trend_pct: Optional[float]  # trend_pct minus the sector's, same window and as-of date
 
 
 @dataclass
@@ -143,6 +145,15 @@ def _sector_reaction(sector_prices: pd.Series, reaction_date: pd.Timestamp) -> O
     if pos == 0:
         return None
     return float(sector_prices.iloc[pos] / sector_prices.iloc[pos - 1] - 1)
+
+
+def _sector_trend_now(sector_prices: pd.Series, as_of_date: pd.Timestamp, trend_window_days: int) -> Optional[float]:
+    """Same trailing-return calc as _trend_before, but for the sector ETF and anchored on as_of_date."""
+    sector_index = list(sector_prices.index)
+    if as_of_date not in sector_prices.index:
+        return None
+    pos = sector_index.index(as_of_date)
+    return _trend_before(sector_prices, pos + 1, trend_window_days)
 
 
 def _beat_miss_stats(reactions: List[EarningsReaction], want_beat: bool) -> BeatMissStats:
@@ -276,13 +287,26 @@ def analyze(
             correlation = float(np.corrcoef(surprises, moves)[0, 1])
 
     last_pos = len(price_index_list) - 1
+    # _trend_before anchors on the close right *before* pos — pos=last_pos+1
+    # makes that anchor the latest available close, i.e. "as of right now".
+    current_trend_pct = _trend_before(prices, last_pos + 1, trend_window_days)
+    current_sector_trend_pct = (
+        _sector_trend_now(sector_prices, price_index_list[-1], trend_window_days)
+        if sector_prices is not None
+        else None
+    )
+    current_excess_trend_pct = (
+        current_trend_pct - current_sector_trend_pct
+        if current_trend_pct is not None and current_sector_trend_pct is not None
+        else None
+    )
     current_snapshot = CurrentSnapshot(
         as_of_date=price_index_list[-1].strftime("%Y-%m-%d"),
         current_price=float(prices.iloc[-1]),
-        # _trend_before anchors on the close right *before* pos — pos=last_pos+1
-        # makes that anchor the latest available close, i.e. "as of right now".
-        trend_pct=_trend_before(prices, last_pos + 1, trend_window_days),
+        trend_pct=current_trend_pct,
         volume_ratio=_volume_ratio(volume, last_pos),
+        sector_trend_pct=current_sector_trend_pct,
+        excess_trend_pct=current_excess_trend_pct,
     )
 
     return EarningsAnalysisResult(

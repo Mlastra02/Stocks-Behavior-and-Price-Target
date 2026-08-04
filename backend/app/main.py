@@ -194,6 +194,8 @@ def earnings_analysis():
                 "current_price": result.current_snapshot.current_price,
                 "trend_pct": result.current_snapshot.trend_pct,
                 "volume_ratio": result.current_snapshot.volume_ratio,
+                "sector_trend_pct": result.current_snapshot.sector_trend_pct,
+                "excess_trend_pct": result.current_snapshot.excess_trend_pct,
             },
             "reactions": [
                 {

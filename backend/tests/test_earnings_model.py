@@ -303,6 +303,10 @@ class SectorComparisonTest(unittest.TestCase):
             places=9,
         )
 
+        snapshot = result.current_snapshot
+        self.assertIsNotNone(snapshot.sector_trend_pct)
+        self.assertAlmostEqual(snapshot.excess_trend_pct, snapshot.trend_pct - snapshot.sector_trend_pct, places=9)
+
 
 class CurrentSnapshotTest(unittest.TestCase):
     def test_snapshot_reflects_latest_price_and_trailing_trend(self):

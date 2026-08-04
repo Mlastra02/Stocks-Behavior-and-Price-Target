@@ -776,7 +776,7 @@ export default function EarningsPage() {
                         hasta que el reporte ocurra. Es solo para comparar el punto de partida contra los reportes
                         históricos de arriba, no forma parte de la tabla ni de las estadísticas.
                       </p>
-                      <div className="tiles momentum-tiles">
+                      <div className="tiles momentum-tiles" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
                         <div className="tile">
                           <p className="tile-label">
                             <span className="tile-dot" style={{ background: "var(--series-1)" }} />
@@ -792,6 +792,20 @@ export default function EarningsPage() {
                           <p className="tile-value">
                             <SignedPct value={result.current_snapshot.trend_pct} />
                           </p>
+                        </div>
+                        <div className="tile">
+                          <p className="tile-label">
+                            <span className="tile-dot" style={{ background: "var(--series-1)" }} />
+                            Vs. sector ({TREND_WINDOW_LABELS[result.trend_window_days]})
+                          </p>
+                          <p className="tile-value">
+                            <SignedPct value={result.current_snapshot.excess_trend_pct} />
+                          </p>
+                          {result.current_snapshot.sector_trend_pct != null && (
+                            <p className="field-hint">
+                              sector: <SignedPct value={result.current_snapshot.sector_trend_pct} />
+                            </p>
+                          )}
                         </div>
                         <div className="tile">
                           <p className="tile-label">
